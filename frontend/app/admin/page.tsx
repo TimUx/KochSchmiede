@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
@@ -50,6 +51,12 @@ interface UnitRecord {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
 async function apiFetch(path: string, options: RequestInit = {}) {
   const token = typeof window !== "undefined" ? localStorage.getItem("ks_token") : null;
   const headers: Record<string, string> = {
@@ -60,7 +67,7 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Request failed");
+    throw new ApiError(err.detail ?? "Request failed", res.status);
   }
   return res.status === 204 ? null : res.json();
 }
@@ -99,6 +106,7 @@ function Toggle({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
+  const router = useRouter();
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [units, setUnits] = useState<UnitRecord[]>([]);
@@ -122,6 +130,10 @@ export default function AdminPage() {
   const [addingUnit, setAddingUnit] = useState(false);
 
   const load = useCallback(async () => {
+    if (typeof window !== "undefined" && !localStorage.getItem("ks_token")) {
+      router.replace("/login");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -134,11 +146,17 @@ export default function AdminPage() {
       setUsers(u);
       setUnits(un);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Fehler beim Laden");
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        // Token is invalid, expired, or user lost admin rights – clear it and go to login
+        localStorage.removeItem("ks_token");
+        router.replace("/login");
+      } else {
+        setError(e instanceof Error ? e.message : "Fehler beim Laden");
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     load();
