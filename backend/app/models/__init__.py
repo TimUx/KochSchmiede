@@ -73,6 +73,14 @@ class Recipe(Base):
     shares = relationship("RecipeShare", back_populates="recipe", cascade="all, delete-orphan")
 
 
+class Unit(Base):
+    __tablename__ = "units"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(100), unique=True, nullable=False)
+    position = Column(Integer, default=0)
+
+
 class IngredientGroup(Base):
     __tablename__ = "ingredient_groups"
 

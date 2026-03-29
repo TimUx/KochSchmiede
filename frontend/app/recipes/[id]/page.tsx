@@ -43,9 +43,7 @@ function scaleAmount(amount: string, ratio: number): string {
   if (!amount) return amount;
   const n = parseFloat(amount);
   if (isNaN(n)) return amount;
-  const scaled = n * ratio;
-  // Show up to 2 decimal places, strip trailing zeros
-  return parseFloat(scaled.toFixed(2)).toString();
+  return (n * ratio).toFixed(2).replace(/\.?0+$/, "");
 }
 
 /** Format amount + unit for display, respecting "keine Einheit" */

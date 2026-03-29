@@ -49,6 +49,21 @@ class IngredientOut(IngredientCreate):
     model_config = {"from_attributes": True}
 
 
+# ─── Unit ────────────────────────────────────────────────────────────────────
+
+
+class UnitCreate(BaseModel):
+    name: str
+
+
+class UnitOut(BaseModel):
+    id: str
+    name: str
+    position: int
+
+    model_config = {"from_attributes": True}
+
+
 # ─── Ingredient Group ─────────────────────────────────────────────────────────
 
 

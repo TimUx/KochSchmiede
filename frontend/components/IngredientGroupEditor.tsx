@@ -1,27 +1,16 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
-export const UNITS = [
-  "keine Einheit",
-  "g",
-  "kg",
-  "ml",
-  "l",
-  "EL",
-  "TL",
-  "Tasse",
-  "Prise",
-  "Msp.",
-  "Stück",
-  "Scheibe(n)",
-  "Bund",
-  "Packung",
-  "Dose",
-  "Glas",
-  "cm",
-  "nach Geschmack",
+// Fallback units used while the API response is loading or if the request fails.
+const FALLBACK_UNITS = [
+  "keine Einheit", "g", "kg", "ml", "l", "EL", "TL",
+  "Tasse", "Prise", "Msp.", "Stück", "Scheibe(n)", "Bund",
+  "Packung", "Dose", "Glas", "cm", "nach Geschmack",
 ];
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export type Ingredient = { amount: string; unit: string; name: string };
 export type IngredientGroup = { name: string; ingredients: Ingredient[] };
@@ -31,10 +20,12 @@ const inputCls =
 
 function IngredientRow({
   ing,
+  units,
   onChange,
   onRemove,
 }: {
   ing: Ingredient;
+  units: string[];
   onChange: (updated: Ingredient) => void;
   onRemove: () => void;
 }) {
@@ -54,7 +45,7 @@ function IngredientRow({
         <option value="" disabled>
           Einheit
         </option>
-        {UNITS.map((u) => (
+        {units.map((u) => (
           <option key={u} value={u}>
             {u}
           </option>
@@ -88,6 +79,19 @@ export default function IngredientGroupEditor({
   groups,
   onGroupsChange,
 }: Props) {
+  const [units, setUnits] = useState<string[]>(FALLBACK_UNITS);
+
+  useEffect(() => {
+    fetch(`${API}/api/units`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { name: string }[] | null) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setUnits(data.map((u) => u.name));
+        }
+      })
+      .catch(() => {/* keep fallback list */});
+  }, []);
+
   // ── helpers for ungrouped ─────────────────────────────────────────────────
   const addIngredient = () =>
     onIngredientsChange([...ingredients, { amount: "", unit: "", name: "" }]);
@@ -162,6 +166,7 @@ export default function IngredientGroupEditor({
               <IngredientRow
                 key={i}
                 ing={ing}
+                units={units}
                 onChange={(v) => updateIngredient(i, v)}
                 onRemove={() => removeIngredient(i)}
               />
@@ -197,6 +202,7 @@ export default function IngredientGroupEditor({
               <IngredientRow
                 key={ii}
                 ing={ing}
+                units={units}
                 onChange={(v) => updateGroupIngredient(gi, ii, v)}
                 onRemove={() => removeGroupIngredient(gi, ii)}
               />

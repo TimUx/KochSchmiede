@@ -215,17 +215,18 @@ def update_recipe(
         ]
 
     if recipe_in.ingredient_groups is not None:
-        for g in recipe.ingredient_groups:
-            db.delete(g)
-        new_groups = []
-        for grp_idx, grp in enumerate(recipe_in.ingredient_groups):
-            group = IngredientGroup(recipe_id=recipe.id, name=grp.name, position=grp_idx)
-            for idx, ing in enumerate(grp.ingredients):
-                group.ingredients.append(
+        recipe.ingredient_groups = [
+            IngredientGroup(
+                recipe_id=recipe.id,
+                name=grp.name,
+                position=grp_idx,
+                ingredients=[
                     Ingredient(recipe=recipe, amount=ing.amount, unit=ing.unit, name=ing.name, position=idx)
-                )
-            new_groups.append(group)
-        recipe.ingredient_groups = new_groups
+                    for idx, ing in enumerate(grp.ingredients)
+                ],
+            )
+            for grp_idx, grp in enumerate(recipe_in.ingredient_groups)
+        ]
 
     if recipe_in.steps is not None:
         for s in recipe.steps:
