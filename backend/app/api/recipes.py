@@ -6,8 +6,16 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
 from app.database import get_db
-from app.models import Ingredient, Recipe, RecipeShare, Step, Tag
-from app.schemas import RecipeCreate, RecipeOut, RecipeShareCreate, RecipeShareOut, RecipeUpdate
+from app.models import Ingredient, IngredientGroup, Recipe, RecipeShare, Step, Tag
+from app.schemas import (
+    IngredientGroupOut,
+    IngredientOut,
+    RecipeCreate,
+    RecipeOut,
+    RecipeShareCreate,
+    RecipeShareOut,
+    RecipeUpdate,
+)
 from app.services.auth import hash_password, verify_password
 from app.services.settings import get_settings
 
@@ -38,6 +46,20 @@ def _get_or_create_tag(db: Session, name: str) -> Tag:
 
 
 def _recipe_to_out(recipe: Recipe) -> RecipeOut:
+    # Ungrouped ingredients (no group assigned)
+    ungrouped = [i for i in recipe.ingredients if i.group_id is None]
+    groups = [
+        IngredientGroupOut(
+            id=g.id,
+            name=g.name,
+            position=g.position,
+            ingredients=[
+                IngredientOut(id=i.id, amount=i.amount, unit=i.unit, name=i.name, position=i.position)
+                for i in g.ingredients
+            ],
+        )
+        for g in recipe.ingredient_groups
+    ]
     return RecipeOut(
         id=recipe.id,
         title=recipe.title,
@@ -50,9 +72,10 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
         created_at=recipe.created_at,
         updated_at=recipe.updated_at,
         ingredients=[
-            {"id": i.id, "amount": i.amount, "unit": i.unit, "name": i.name, "position": i.position}
-            for i in recipe.ingredients
+            IngredientOut(id=i.id, amount=i.amount, unit=i.unit, name=i.name, position=i.position)
+            for i in ungrouped
         ],
+        ingredient_groups=groups,
         steps=[{"id": s.id, "position": s.position, "instruction": s.instruction} for s in recipe.steps],
         tags=[t.name for t in recipe.tags],
     )
@@ -108,6 +131,13 @@ def create_recipe(
         recipe.ingredients.append(
             Ingredient(amount=ing.amount, unit=ing.unit, name=ing.name, position=idx)
         )
+    for grp_idx, grp in enumerate(recipe_in.ingredient_groups):
+        group = IngredientGroup(name=grp.name, position=grp_idx)
+        for idx, ing in enumerate(grp.ingredients):
+            group.ingredients.append(
+                Ingredient(recipe=recipe, amount=ing.amount, unit=ing.unit, name=ing.name, position=idx)
+            )
+        recipe.ingredient_groups.append(group)
     for step in recipe_in.steps:
         recipe.steps.append(Step(position=step.position, instruction=step.instruction))
     for tag_name in recipe_in.tags:
@@ -182,6 +212,20 @@ def update_recipe(
         recipe.ingredients = [
             Ingredient(amount=ing.amount, unit=ing.unit, name=ing.name, position=idx)
             for idx, ing in enumerate(recipe_in.ingredients)
+        ]
+
+    if recipe_in.ingredient_groups is not None:
+        recipe.ingredient_groups = [
+            IngredientGroup(
+                recipe_id=recipe.id,
+                name=grp.name,
+                position=grp_idx,
+                ingredients=[
+                    Ingredient(recipe=recipe, amount=ing.amount, unit=ing.unit, name=ing.name, position=idx)
+                    for idx, ing in enumerate(grp.ingredients)
+                ],
+            )
+            for grp_idx, grp in enumerate(recipe_in.ingredient_groups)
         ]
 
     if recipe_in.steps is not None:

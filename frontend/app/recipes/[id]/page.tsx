@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
 import ShareDialog from "@/components/ShareDialog";
 import Link from "next/link";
-import { ArrowLeft, Clock, Users, Edit, Heart, Share2, Printer } from "lucide-react";
+import { ArrowLeft, Clock, Users, Edit, Heart, Share2, Printer, ChevronUp, ChevronDown } from "lucide-react";
 
 // Mock data used until API is wired
 const mockRecipe = {
@@ -18,14 +18,15 @@ const mockRecipe = {
   servings: 4,
   tags: ["Pasta", "Italienisch", "Klassiker"],
   ingredients: [
-    { amount: "400g", name: "Spaghetti" },
-    { amount: "200g", name: "Guanciale oder Speck" },
-    { amount: "4", name: "Eier (davon 2 nur Eigelb)" },
-    { amount: "100g", name: "Pecorino Romano, gerieben" },
-    { amount: "50g", name: "Parmesan, gerieben" },
-    { amount: "nach Geschmack", name: "Schwarzer Pfeffer, frisch gemahlen" },
-    { amount: "1 TL", name: "Salz" },
+    { amount: "400", unit: "g", name: "Spaghetti" },
+    { amount: "200", unit: "g", name: "Guanciale oder Speck" },
+    { amount: "4", unit: "keine Einheit", name: "Eier (davon 2 nur Eigelb)" },
+    { amount: "100", unit: "g", name: "Pecorino Romano, gerieben" },
+    { amount: "50", unit: "g", name: "Parmesan, gerieben" },
+    { amount: "", unit: "nach Geschmack", name: "Schwarzer Pfeffer, frisch gemahlen" },
+    { amount: "1", unit: "TL", name: "Salz" },
   ],
+  ingredient_groups: [] as { name: string; ingredients: { amount: string; unit: string; name: string }[] }[],
   steps: [
     "Einen großen Topf mit Salzwasser zum Kochen bringen und Spaghetti al dente kochen.",
     "Guanciale in einer großen Pfanne bei mittlerer Hitze ohne Öl knusprig braten.",
@@ -37,11 +38,34 @@ const mockRecipe = {
   ],
 };
 
+/** Scale a numeric amount string by ratio. Returns the original string unchanged if non-numeric. */
+function scaleAmount(amount: string, ratio: number): string {
+  if (!amount) return amount;
+  const n = parseFloat(amount);
+  if (isNaN(n)) return amount;
+  return (n * ratio).toFixed(2).replace(/\.?0+$/, "");
+}
+
+/** Format amount + unit for display, respecting "keine Einheit" */
+function formatAmount(amount: string, unit: string): string {
+  const u = unit === "keine Einheit" || unit === "" ? "" : unit;
+  if (!amount && !u) return "";
+  if (!amount) return u;
+  return u ? `${amount} ${u}` : amount;
+}
+
 export default function RecipeView({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const recipe = mockRecipe;
 
   const [shareOpen, setShareOpen] = useState(false);
+  const [currentServings, setCurrentServings] = useState(recipe.servings);
+
+  const ratio = currentServings / recipe.servings;
+
+  const adjustServings = (delta: number) => {
+    setCurrentServings((prev) => Math.max(1, prev + delta));
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
@@ -112,9 +136,26 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
               <div className="font-semibold text-sm">{recipe.cook_time} Min</div>
               <div className="text-xs text-zinc-400">Kochzeit</div>
             </div>
+            {/* Servings scaler */}
             <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 text-center border border-zinc-100 dark:border-zinc-800">
               <Users size={18} className="mx-auto mb-1 text-amber-500" />
-              <div className="font-semibold text-sm">{recipe.servings}</div>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={() => adjustServings(-1)}
+                  className="p-0.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition print:hidden"
+                  aria-label="Portionen verringern"
+                >
+                  <ChevronDown size={14} />
+                </button>
+                <span className="font-semibold text-sm min-w-[1.5rem]">{currentServings}</span>
+                <button
+                  onClick={() => adjustServings(1)}
+                  className="p-0.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition print:hidden"
+                  aria-label="Portionen erhöhen"
+                >
+                  <ChevronUp size={14} />
+                </button>
+              </div>
               <div className="text-xs text-zinc-400">Portionen</div>
             </div>
           </div>
@@ -122,21 +163,53 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
           {/* Ingredients */}
           <div className="mb-6">
             <h2 className="font-bold text-lg mb-3">Zutaten</h2>
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
-              {recipe.ingredients.map((ing, i) => (
-                <div
-                  key={i}
-                  className={`flex items-center justify-between px-4 py-3 ${
-                    i !== recipe.ingredients.length - 1
-                      ? "border-b border-zinc-100 dark:border-zinc-800"
-                      : ""
-                  }`}
-                >
-                  <span className="font-medium text-sm">{ing.name}</span>
-                  <span className="text-zinc-500 dark:text-zinc-400 text-sm">{ing.amount}</span>
+
+            {/* Ungrouped ingredients */}
+            {recipe.ingredients.length > 0 && (
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden mb-4">
+                {recipe.ingredients.map((ing, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center justify-between px-4 py-3 ${
+                      i !== recipe.ingredients.length - 1
+                        ? "border-b border-zinc-100 dark:border-zinc-800"
+                        : ""
+                    }`}
+                  >
+                    <span className="font-medium text-sm">{ing.name}</span>
+                    <span className="text-zinc-500 dark:text-zinc-400 text-sm">
+                      {formatAmount(scaleAmount(ing.amount, ratio), ing.unit)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Grouped ingredients */}
+            {recipe.ingredient_groups.map((group, gi) => (
+              <div key={gi} className="mb-4">
+                <h3 className="text-sm font-semibold text-amber-600 dark:text-amber-400 mb-2">
+                  {group.name}
+                </h3>
+                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
+                  {group.ingredients.map((ing, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center justify-between px-4 py-3 ${
+                        i !== group.ingredients.length - 1
+                          ? "border-b border-zinc-100 dark:border-zinc-800"
+                          : ""
+                      }`}
+                    >
+                      <span className="font-medium text-sm">{ing.name}</span>
+                      <span className="text-zinc-500 dark:text-zinc-400 text-sm">
+                        {formatAmount(scaleAmount(ing.amount, ratio), ing.unit)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
 
           {/* Steps */}
@@ -170,3 +243,4 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
     </div>
   );
 }
+

@@ -3,6 +3,10 @@
 import { useState } from "react";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
+import IngredientGroupEditor, {
+  type Ingredient,
+  type IngredientGroup,
+} from "@/components/IngredientGroupEditor";
 import Link from "next/link";
 import { ArrowLeft, Plus, Trash2, Save, Camera, Upload } from "lucide-react";
 
@@ -11,11 +15,10 @@ export default function NewRecipePage() {
   const [description, setDescription] = useState("");
   const [prepTime, setPrepTime] = useState("");
   const [servings, setServings] = useState("4");
-  const [ingredients, setIngredients] = useState([{ amount: "", name: "" }]);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([{ amount: "", unit: "", name: "" }]);
+  const [ingredientGroups, setIngredientGroups] = useState<IngredientGroup[]>([]);
   const [steps, setSteps] = useState([""]);
 
-  const addIngredient = () => setIngredients([...ingredients, { amount: "", name: "" }]);
-  const removeIngredient = (i: number) => setIngredients(ingredients.filter((_, idx) => idx !== i));
   const addStep = () => setSteps([...steps, ""]);
   const removeStep = (i: number) => setSteps(steps.filter((_, idx) => idx !== i));
 
@@ -91,43 +94,15 @@ export default function NewRecipePage() {
             </div>
           </div>
 
-          {/* Ingredients */}
+          {/* Ingredients with group support */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Zutaten</label>
-              <button onClick={addIngredient} className="flex items-center gap-1 text-amber-500 text-sm">
-                <Plus size={14} /> Hinzufügen
-              </button>
-            </div>
-            <div className="space-y-2">
-              {ingredients.map((ing, i) => (
-                <div key={i} className="flex gap-2">
-                  <input
-                    value={ing.amount}
-                    onChange={(e) => {
-                      const updated = [...ingredients];
-                      updated[i].amount = e.target.value;
-                      setIngredients(updated);
-                    }}
-                    placeholder="Menge"
-                    className="w-24 px-3 py-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  />
-                  <input
-                    value={ing.name}
-                    onChange={(e) => {
-                      const updated = [...ingredients];
-                      updated[i].name = e.target.value;
-                      setIngredients(updated);
-                    }}
-                    placeholder="Zutat"
-                    className="flex-1 px-3 py-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  />
-                  <button onClick={() => removeIngredient(i)} className="p-2 text-red-500">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
-            </div>
+            <label className="block text-sm font-medium mb-2">Zutaten</label>
+            <IngredientGroupEditor
+              ingredients={ingredients}
+              onIngredientsChange={setIngredients}
+              groups={ingredientGroups}
+              onGroupsChange={setIngredientGroups}
+            />
           </div>
 
           {/* Steps */}
@@ -168,3 +143,4 @@ export default function NewRecipePage() {
     </div>
   );
 }
+

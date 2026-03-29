@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import get_admin_user, get_current_user
 from app.database import get_db
-from app.models import User
-from app.schemas import SiteSettingsOut, SiteSettingsUpdate, UserCreate, UserOut
+from app.models import User, Unit
+from app.schemas import SiteSettingsOut, SiteSettingsUpdate, UnitCreate, UnitOut, UserCreate, UserOut
 from app.services.auth import create_user, get_user_by_username, hash_password
 from app.services.settings import get_settings, update_settings
 
@@ -87,4 +87,47 @@ def delete_user(
     if user.id == current_admin.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
     db.delete(user)
+    db.commit()
+
+
+# ─── Unit Management ──────────────────────────────────────────────────────────
+
+
+@router.get("/units", response_model=list[UnitOut])
+def list_units(
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    return db.query(Unit).order_by(Unit.position, Unit.name).all()
+
+
+@router.post("/units", response_model=UnitOut, status_code=201)
+def create_unit(
+    unit_in: UnitCreate,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    name = unit_in.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name darf nicht leer sein")
+    if db.query(Unit).filter(Unit.name == name).first():
+        raise HTTPException(status_code=400, detail="Einheit existiert bereits")
+    position = db.query(Unit).count()
+    unit = Unit(name=name, position=position)
+    db.add(unit)
+    db.commit()
+    db.refresh(unit)
+    return unit
+
+
+@router.delete("/units/{unit_id}", status_code=204)
+def delete_unit(
+    unit_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    unit = db.query(Unit).filter(Unit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
+    db.delete(unit)
     db.commit()

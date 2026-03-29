@@ -62,9 +62,40 @@ class Recipe(Base):
     steps = relationship(
         "Step", back_populates="recipe", cascade="all, delete-orphan", order_by="Step.position"
     )
+    ingredient_groups = relationship(
+        "IngredientGroup",
+        back_populates="recipe",
+        cascade="all, delete-orphan",
+        order_by="IngredientGroup.position",
+    )
     tags = relationship("Tag", secondary=recipe_tags, back_populates="recipes")
     images = relationship("RecipeImage", back_populates="recipe", cascade="all, delete-orphan")
     shares = relationship("RecipeShare", back_populates="recipe", cascade="all, delete-orphan")
+
+
+class Unit(Base):
+    __tablename__ = "units"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(100), unique=True, nullable=False)
+    position = Column(Integer, default=0)
+
+
+class IngredientGroup(Base):
+    __tablename__ = "ingredient_groups"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    recipe_id = Column(String, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    position = Column(Integer, default=0)
+
+    recipe = relationship("Recipe", back_populates="ingredient_groups")
+    ingredients = relationship(
+        "Ingredient",
+        back_populates="group",
+        cascade="all, delete-orphan",
+        order_by="Ingredient.position",
+    )
 
 
 class Ingredient(Base):
@@ -72,12 +103,14 @@ class Ingredient(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     recipe_id = Column(String, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    group_id = Column(String, ForeignKey("ingredient_groups.id", ondelete="SET NULL"), nullable=True)
     amount = Column(String(100))
     unit = Column(String(50))
     name = Column(String(255), nullable=False)
     position = Column(Integer, default=0)
 
     recipe = relationship("Recipe", back_populates="ingredients")
+    group = relationship("IngredientGroup", back_populates="ingredients")
 
 
 class Step(Base):

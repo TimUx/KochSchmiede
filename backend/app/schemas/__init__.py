@@ -49,6 +49,39 @@ class IngredientOut(IngredientCreate):
     model_config = {"from_attributes": True}
 
 
+# ─── Unit ────────────────────────────────────────────────────────────────────
+
+
+class UnitCreate(BaseModel):
+    name: str
+
+
+class UnitOut(BaseModel):
+    id: str
+    name: str
+    position: int
+
+    model_config = {"from_attributes": True}
+
+
+# ─── Ingredient Group ─────────────────────────────────────────────────────────
+
+
+class IngredientGroupCreate(BaseModel):
+    name: str
+    position: int = 0
+    ingredients: list[IngredientCreate] = []
+
+
+class IngredientGroupOut(BaseModel):
+    id: str
+    name: str
+    position: int = 0
+    ingredients: list[IngredientOut] = []
+
+    model_config = {"from_attributes": True}
+
+
 # ─── Step ────────────────────────────────────────────────────────────────────
 
 
@@ -75,6 +108,7 @@ class RecipeCreate(BaseModel):
     servings: Optional[int] = 4
     source_url: Optional[str] = None
     ingredients: list[IngredientCreate] = []
+    ingredient_groups: list[IngredientGroupCreate] = []
     steps: list[StepCreate] = []
     tags: list[str] = []
 
@@ -87,6 +121,7 @@ class RecipeUpdate(BaseModel):
     cook_time: Optional[int] = None
     servings: Optional[int] = None
     ingredients: Optional[list[IngredientCreate]] = None
+    ingredient_groups: Optional[list[IngredientGroupCreate]] = None
     steps: Optional[list[StepCreate]] = None
     tags: Optional[list[str]] = None
 
@@ -103,6 +138,7 @@ class RecipeOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     ingredients: list[IngredientOut] = []
+    ingredient_groups: list[IngredientGroupOut] = []
     steps: list[StepOut] = []
     tags: list[str] = []
 
@@ -123,6 +159,7 @@ class RecipeOut(BaseModel):
                 "created_at": obj.created_at,
                 "updated_at": obj.updated_at,
                 "ingredients": obj.ingredients,
+                "ingredient_groups": obj.ingredient_groups,
                 "steps": obj.steps,
                 "tags": [t.name for t in obj.tags],
             }
