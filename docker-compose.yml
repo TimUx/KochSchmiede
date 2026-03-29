@@ -33,7 +33,7 @@ services:
       context: ./frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:8000
+      BACKEND_URL: http://backend:8000
     depends_on:
       - backend
     ports:
