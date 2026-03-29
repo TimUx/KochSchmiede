@@ -130,7 +130,7 @@ export default function AdminPage() {
   const [addingUnit, setAddingUnit] = useState(false);
 
   const load = useCallback(async () => {
-    if (typeof window !== "undefined" && !localStorage.getItem("ks_token")) {
+    if (!localStorage.getItem("ks_token")) {
       router.replace("/login");
       return;
     }

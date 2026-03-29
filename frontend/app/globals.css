@@ -1,15 +1,19 @@
 @import "tailwindcss";
 
+/* Tell Tailwind v4 to use the class-based dark mode that next-themes injects.
+   Without this, dark: utilities default to @media (prefers-color-scheme: dark)
+   and the toggle button has no effect. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #1e1e2e;
-    --foreground: #ededed;
-  }
+/* next-themes sets class="dark" on <html>; CSS vars must follow the class, not the media query */
+.dark {
+  --background: #1e1e2e;
+  --foreground: #ededed;
 }
 
 body {

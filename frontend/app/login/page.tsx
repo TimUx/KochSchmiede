@@ -15,11 +15,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Redirect already-authenticated users away from the login page
+  // Redirect already-authenticated users away from the login page,
+  // or to the setup wizard if no admin has been created yet.
   useEffect(() => {
-    if (typeof window !== "undefined" && localStorage.getItem("ks_token")) {
+    if (localStorage.getItem("ks_token")) {
       router.replace("/");
+      return;
     }
+    fetch(`${API}/api/setup/status`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.needs_setup) router.replace("/setup");
+      })
+      .catch(() => {});
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
