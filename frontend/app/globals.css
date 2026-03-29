@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #1e1e2e;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", "Poppins", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ── Print / PDF export styles ─────────────────────────────────────────────── */
+@media print {
+  /* Hide chrome */
+  .print\:hidden,
+  nav,
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 12pt;
+  }
+
+  main {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Step numbers: plain circles in print */
+  .print\:rounded-none {
+    border-radius: 0 !important;
+  }
+
+  /* Ensure cards have visible borders */
+  [class*="dark:bg-zinc-900"] {
+    background: #fff !important;
+    border: 1px solid #e5e7eb !important;
+  }
+
+  /* Don't break ingredients or steps across pages */
+  .mb-6 {
+    break-inside: avoid;
+  }
+}
