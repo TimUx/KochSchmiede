@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -32,7 +32,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     recipes = relationship("Recipe", back_populates="owner", cascade="all, delete-orphan")
 
@@ -48,8 +48,8 @@ class Recipe(Base):
     cook_time = Column(Integer)  # minutes
     servings = Column(Integer, default=4)
     source_url = Column(String(512))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"))
     owner = relationship("User", back_populates="recipes")
@@ -104,6 +104,6 @@ class RecipeImage(Base):
     recipe_id = Column(String, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
     url = Column(String(512), nullable=False)
     is_primary = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     recipe = relationship("Recipe", back_populates="images")

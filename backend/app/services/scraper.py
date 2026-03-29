@@ -1,10 +1,46 @@
 import re
+from ipaddress import ip_address, ip_network
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
 from app.schemas import ImportResult
+
+# Private/loopback networks to block (SSRF protection)
+_BLOCKED_NETWORKS = [
+    ip_network("127.0.0.0/8"),
+    ip_network("10.0.0.0/8"),
+    ip_network("172.16.0.0/12"),
+    ip_network("192.168.0.0/16"),
+    ip_network("169.254.0.0/16"),
+    ip_network("::1/128"),
+    ip_network("fc00::/7"),
+]
+
+
+def _validate_url(url: str) -> None:
+    """Raise ValueError if the URL is unsafe (non-HTTP/S or private IP)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only http/https URLs are allowed")
+    hostname = parsed.hostname or ""
+    if not hostname:
+        raise ValueError("Invalid URL: missing hostname")
+    # Resolve and block private IP ranges
+    import socket
+
+    try:
+        addr = ip_address(socket.gethostbyname(hostname))
+        for net in _BLOCKED_NETWORKS:
+            if addr in net:
+                raise ValueError(f"Requests to private/internal addresses are not allowed: {addr}")
+    except (socket.gaierror, ValueError) as e:
+        if "not allowed" in str(e):
+            raise
+        # DNS resolution failed or hostname is not an IP — still allow (fail at request time)
+
 
 
 def _clean_text(text: str) -> str:
@@ -46,6 +82,7 @@ def _detect_steps(lines: list[str]) -> list[str]:
 
 def scrape_url(url: str) -> ImportResult:
     """Scrape a recipe website and extract structured data."""
+    _validate_url(url)
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (compatible; KochSchmiede/1.0; +https://github.com/TimUx/KochSchmiede)"

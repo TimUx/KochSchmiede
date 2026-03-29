@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://kochschmiede:${POSTGRES_PASSWORD:-secret}@postgres:5432/kochschmiede
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env file}
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000","http://${DOMAIN:-localhost}"]'
     depends_on:
       postgres:
