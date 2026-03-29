@@ -11,6 +11,7 @@ export default function ImportPage() {
   const [activeTab, setActiveTab] = useState<ImportTab>("url");
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [result, setResult] = useState<null | { title: string; ingredients: string[]; steps: string[] }>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -38,6 +39,7 @@ export default function ImportPage() {
   };
 
   const startCamera = async () => {
+    setCameraError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       if (videoRef.current) {
@@ -45,7 +47,7 @@ export default function ImportPage() {
         setCameraActive(true);
       }
     } catch {
-      alert("Kamerazugriff nicht möglich");
+      setCameraError("Kamerazugriff nicht möglich. Bitte Berechtigungen prüfen.");
     }
   };
 
@@ -171,13 +173,20 @@ export default function ImportPage() {
               Fotografiere ein Rezept direkt mit der Kamera.
             </p>
             {!cameraActive ? (
-              <button
-                onClick={startCamera}
-                className="w-full flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl text-zinc-500 hover:border-amber-400 transition"
-              >
-                <Camera size={32} />
-                <span className="text-sm">Kamera starten</span>
-              </button>
+              <div>
+                {cameraError && (
+                  <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-600 dark:text-red-400">
+                    {cameraError}
+                  </div>
+                )}
+                <button
+                  onClick={startCamera}
+                  className="w-full flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl text-zinc-500 hover:border-amber-400 transition"
+                >
+                  <Camera size={32} />
+                  <span className="text-sm">Kamera starten</span>
+                </button>
+              </div>
             ) : (
               <div>
                 <video

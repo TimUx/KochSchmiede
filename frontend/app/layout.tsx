@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 export const metadata: Metadata = {
   title: "KochSchmiede",
@@ -33,14 +34,10 @@ export default function RootLayout({
     <html lang="de" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js')); }`,
-          }}
-        />
       </head>
       <body className="min-h-screen bg-white dark:bg-[#1e1e2e] text-gray-900 dark:text-gray-100">
         <Providers>
+          <ServiceWorkerRegistration />
           {children}
         </Providers>
       </body>
