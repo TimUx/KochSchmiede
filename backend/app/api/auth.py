@@ -12,6 +12,7 @@ from app.services.auth import (
     get_user_by_id,
     get_user_by_username,
 )
+from app.services.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -32,8 +33,23 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 
+def get_admin_user(current_user=Depends(get_current_user)):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user
+
+
 @router.post("/register", response_model=UserOut, status_code=201)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    site_settings = get_settings(db)
+    # Allow registration if open, OR if this would be the very first user (bootstrap).
+    from app.models import User as UserModel  # avoid circular at module level
+    is_first_user = db.query(UserModel).count() == 0
+    if site_settings.registration_mode == "admin_only" and not is_first_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled. Please ask an admin to create your account.",
+        )
     if get_user_by_username(db, user_in.username):
         raise HTTPException(status_code=400, detail="Username already taken")
     return create_user(db, user_in)

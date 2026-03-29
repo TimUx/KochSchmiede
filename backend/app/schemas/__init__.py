@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -18,6 +18,7 @@ class UserOut(BaseModel):
     username: str
     email: str
     is_active: bool
+    is_admin: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -140,3 +141,38 @@ class ImportResult(BaseModel):
     ingredients: list[str] = []
     steps: list[str] = []
     tags: list[str] = []
+
+
+# ─── Site Settings ────────────────────────────────────────────────────────────
+
+
+class SiteSettingsOut(BaseModel):
+    site_mode: Literal["public", "private"]
+    registration_mode: Literal["open", "admin_only"]
+    ssrf_protection: bool
+
+    model_config = {"from_attributes": True}
+
+
+class SiteSettingsUpdate(BaseModel):
+    site_mode: Optional[Literal["public", "private"]] = None
+    registration_mode: Optional[Literal["open", "admin_only"]] = None
+    ssrf_protection: Optional[bool] = None
+
+
+# ─── Recipe Share ─────────────────────────────────────────────────────────────
+
+
+class RecipeShareCreate(BaseModel):
+    password: Optional[str] = None   # plain text; will be hashed server-side
+
+
+class RecipeShareOut(BaseModel):
+    id: str
+    recipe_id: str
+    token: str
+    has_password: bool
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

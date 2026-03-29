@@ -1,12 +1,18 @@
+"use client";
+
+import { useState, use } from "react";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
+import ShareDialog from "@/components/ShareDialog";
 import Link from "next/link";
-import { ArrowLeft, Clock, Users, Edit, Heart, Share2 } from "lucide-react";
+import { ArrowLeft, Clock, Users, Edit, Heart, Share2, Printer } from "lucide-react";
 
+// Mock data used until API is wired
 const mockRecipe = {
   id: "1",
   title: "Spaghetti Carbonara",
-  description: "Ein klassisches italienisches Nudelgericht aus Rom, zubereitet mit Eiern, Pecorino-Käse, Guanciale (oder Speck) und schwarzem Pfeffer.",
+  description:
+    "Ein klassisches italienisches Nudelgericht aus Rom, zubereitet mit Eiern, Pecorino-Käse, Guanciale (oder Speck) und schwarzem Pfeffer.",
   prep_time: 20,
   cook_time: 15,
   servings: 4,
@@ -31,36 +37,49 @@ const mockRecipe = {
   ],
 };
 
-export default async function RecipeView({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default function RecipeView({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const recipe = mockRecipe;
+
+  const [shareOpen, setShareOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
       <Navbar />
       <main className="max-w-2xl mx-auto pb-24">
         {/* Header Image */}
-        <div className="w-full h-56 bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+        <div className="w-full h-56 bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center print:hidden">
           <span className="text-8xl">🍝</span>
         </div>
 
         <div className="px-4 py-4">
           {/* Back + Actions */}
-          <div className="flex items-center justify-between mb-4">
-            <Link href="/recipes" className="flex items-center gap-1 text-zinc-500 dark:text-zinc-400 text-sm">
+          <div className="flex items-center justify-between mb-4 print:hidden">
+            <Link
+              href="/recipes"
+              className="flex items-center gap-1 text-zinc-500 dark:text-zinc-400 text-sm"
+            >
               <ArrowLeft size={16} /> Zurück
             </Link>
             <div className="flex gap-2">
+              <button
+                onClick={() => window.print()}
+                title="Als PDF exportieren"
+                className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-amber-400 transition"
+              >
+                <Printer size={18} />
+              </button>
               <button className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-rose-500">
                 <Heart size={18} />
               </button>
-              <button className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+              <button
+                onClick={() => setShareOpen(true)}
+                className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-amber-400 transition"
+                title="Rezept teilen"
+              >
                 <Share2 size={18} />
               </button>
-              <Link
-                href={`/recipes/${id}/edit`}
-                className="p-2 rounded-xl bg-amber-500 text-white"
-              >
+              <Link href={`/recipes/${id}/edit`} className="p-2 rounded-xl bg-amber-500 text-white">
                 <Edit size={18} />
               </Link>
             </div>
@@ -72,7 +91,10 @@ export default async function RecipeView({ params }: { params: Promise<{ id: str
           {/* Tags */}
           <div className="flex flex-wrap gap-2 mb-4">
             {recipe.tags.map((tag) => (
-              <span key={tag} className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-3 py-1 rounded-full">
+              <span
+                key={tag}
+                className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-3 py-1 rounded-full"
+              >
                 {tag}
               </span>
             ))}
@@ -104,7 +126,11 @@ export default async function RecipeView({ params }: { params: Promise<{ id: str
               {recipe.ingredients.map((ing, i) => (
                 <div
                   key={i}
-                  className={`flex items-center justify-between px-4 py-3 ${i !== recipe.ingredients.length - 1 ? "border-b border-zinc-100 dark:border-zinc-800" : ""}`}
+                  className={`flex items-center justify-between px-4 py-3 ${
+                    i !== recipe.ingredients.length - 1
+                      ? "border-b border-zinc-100 dark:border-zinc-800"
+                      : ""
+                  }`}
                 >
                   <span className="font-medium text-sm">{ing.name}</span>
                   <span className="text-zinc-500 dark:text-zinc-400 text-sm">{ing.amount}</span>
@@ -119,7 +145,7 @@ export default async function RecipeView({ params }: { params: Promise<{ id: str
             <div className="space-y-4">
               {recipe.steps.map((step, i) => (
                 <div key={i} className="flex gap-4">
-                  <div className="shrink-0 w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center text-sm font-bold">
+                  <div className="shrink-0 w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center text-sm font-bold print:rounded-none print:bg-transparent print:text-zinc-800 print:border print:border-zinc-300">
                     {i + 1}
                   </div>
                   <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 flex-1 text-sm border border-zinc-100 dark:border-zinc-800">
@@ -131,7 +157,16 @@ export default async function RecipeView({ params }: { params: Promise<{ id: str
           </div>
         </div>
       </main>
+
       <BottomNav />
+
+      {/* Share dialog */}
+      <ShareDialog
+        recipeId={id}
+        recipeTitle={recipe.title}
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+      />
     </div>
   );
 }

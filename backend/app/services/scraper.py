@@ -80,9 +80,15 @@ def _detect_steps(lines: list[str]) -> list[str]:
     return result
 
 
-def scrape_url(url: str) -> ImportResult:
+def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
     """Scrape a recipe website and extract structured data."""
-    _validate_url(url)
+    if check_ssrf:
+        _validate_url(url)
+    else:
+        # Even without full SSRF protection, still require http/https.
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Only http/https URLs are allowed")
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (compatible; KochSchmiede/1.0; +https://github.com/TimUx/KochSchmiede)"

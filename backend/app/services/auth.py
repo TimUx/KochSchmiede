@@ -46,11 +46,14 @@ def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
 
 
-def create_user(db: Session, user_in: UserCreate) -> User:
+def create_user(db: Session, user_in: UserCreate, force_admin: bool = False) -> User:
+    # The very first account created on a fresh installation becomes the admin.
+    is_first = db.query(User).count() == 0
     user = User(
         username=user_in.username,
         email=user_in.email,
         hashed_password=hash_password(user_in.password),
+        is_admin=is_first or force_admin,
     )
     db.add(user)
     db.commit()

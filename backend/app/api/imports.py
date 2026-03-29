@@ -1,8 +1,11 @@
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from app.schemas import ImportResult
 from app.services.ocr import ocr_image, ocr_pdf
 from app.services.scraper import scrape_url
+from app.services.settings import get_settings
 
 router = APIRouter(prefix="/import", tags=["import"])
 
@@ -12,9 +15,13 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
 @router.get("/url", response_model=ImportResult)
-def import_from_url(url: str = Query(..., description="Recipe website URL")):
+def import_from_url(
+    url: str = Query(..., description="Recipe website URL"),
+    db: Session = Depends(get_db),
+):
+    site_settings = get_settings(db)
     try:
-        return scrape_url(url)
+        return scrape_url(url, check_ssrf=site_settings.ssrf_protection)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not scrape URL: {e}")
 
