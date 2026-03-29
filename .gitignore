@@ -3,6 +3,7 @@ node_modules/
 frontend/node_modules/
 
 # Build output
+.next/
 frontend/.next/
 frontend/out/
 
