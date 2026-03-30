@@ -1,80 +1,111 @@
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
 import RecipeCard from "@/components/RecipeCard";
 import InstallPrompt from "@/components/InstallPrompt";
 import Link from "next/link";
-import { PlusCircle, TrendingUp, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { PlusCircle, TrendingUp, Search, Loader2 } from "lucide-react";
 
-const mockRecipes = [
-  {
-    id: "1",
-    title: "Spaghetti Carbonara",
-    description: "Klassische italienische Pasta mit Ei, Käse und Speck",
-    prep_time: 20,
-    servings: 4,
-    tags: ["Pasta", "Italienisch", "Klassiker"],
-  },
-  {
-    id: "2",
-    title: "Chicken Tikka Masala",
-    description: "Würziges indisches Currygericht mit zartem Hähnchen",
-    prep_time: 45,
-    servings: 4,
-    tags: ["Indisch", "Curry", "Hähnchen"],
-  },
-  {
-    id: "3",
-    title: "Avocado Toast",
-    description: "Schnelles Frühstück mit frischer Avocado",
-    prep_time: 10,
-    servings: 2,
-    tags: ["Frühstück", "Vegetarisch"],
-  },
-  {
-    id: "4",
-    title: "Beef Bourguignon",
-    description: "Traditioneller französischer Rindereintopf",
-    prep_time: 180,
-    servings: 6,
-    tags: ["Französisch", "Fleisch", "Klassiker"],
-  },
-];
+const API = process.env.NEXT_PUBLIC_API_URL ?? "";
+
+interface ApiRecipe {
+  id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  prep_time: number | null;
+  servings: number | null;
+  tags: string[];
+}
 
 export default function Dashboard() {
+  const router = useRouter();
+  const [recipes, setRecipes] = useState<ApiRecipe[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    const fetchRecipes = async () => {
+      try {
+        const token = localStorage.getItem("ks_token");
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`${API}/api/recipes/`, { headers });
+        if (res.ok) setRecipes(await res.json());
+      } catch {
+        // silently fail — guest mode may 401, that's expected
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRecipes();
+  }, []);
+
+  const categoryCount = useMemo(
+    () => new Set(recipes.flatMap((r) => r.tags)).size,
+    [recipes]
+  );
+
+  const recentRecipes = recipes.slice(0, 4);
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      router.push(`/recipes?q=${encodeURIComponent(searchQuery.trim())}`);
+    } else {
+      router.push("/recipes");
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
       <Navbar />
 
       <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
-        {/* Hero */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold mb-1">Meine Rezepte</h1>
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm">Entdecke und verwalte deine Lieblingsrezepte</p>
+          <p className="text-zinc-500 dark:text-zinc-400 text-sm">
+            Entdecke und verwalte deine Lieblingsrezepte
+          </p>
         </div>
 
         {/* Search */}
-        <div className="relative mb-6">
+        <form onSubmit={handleSearch} className="relative mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
           <input
             type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Rezepte suchen..."
-            className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 transition"
+            className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white transition"
           />
-        </div>
+        </form>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          {[
-            { label: "Rezepte", value: "4", color: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400" },
-            { label: "Kategorien", value: "8", color: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" },
-            { label: "Favoriten", value: "2", color: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400" },
-          ].map((stat) => (
-            <div key={stat.label} className={`rounded-2xl p-3 text-center ${stat.color}`}>
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <div className="text-xs">{stat.label}</div>
-            </div>
-          ))}
-        </div>
+        {!loading && (
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            {[
+              {
+                label: "Rezepte",
+                value: String(recipes.length),
+                color: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
+              },
+              {
+                label: "Kategorien",
+                value: String(categoryCount),
+                color: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
+              },
+            ].map((stat) => (
+              <div key={stat.label} className={`rounded-2xl p-3 text-center ${stat.color}`}>
+                <div className="text-2xl font-bold">{stat.value}</div>
+                <div className="text-xs">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-3 mb-6">
@@ -87,7 +118,7 @@ export default function Dashboard() {
           </Link>
           <Link
             href="/import"
-            className="flex items-center gap-3 bg-zinc-800 dark:bg-zinc-700 text-white rounded-2xl p-4 transition hover:bg-zinc-700"
+            className="flex items-center gap-3 bg-zinc-800 dark:bg-zinc-700 text-white rounded-2xl p-4 transition hover:bg-zinc-700 dark:hover:bg-zinc-600"
           >
             <TrendingUp size={22} />
             <span className="font-medium">Importieren</span>
@@ -97,14 +128,40 @@ export default function Dashboard() {
         {/* Recent Recipes */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-semibold text-lg">Zuletzt hinzugefügt</h2>
-          <Link href="/recipes" className="text-amber-500 text-sm font-medium">Alle anzeigen</Link>
+          <Link href="/recipes" className="text-amber-500 text-sm font-medium">
+            Alle anzeigen
+          </Link>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {mockRecipes.map((recipe) => (
-            <RecipeCard key={recipe.id} recipe={recipe} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 size={28} className="animate-spin text-amber-500" />
+          </div>
+        ) : recentRecipes.length === 0 ? (
+          <div className="text-center py-10 text-zinc-400 text-sm">
+            Noch keine Rezepte vorhanden.{" "}
+            <Link href="/recipes/new" className="text-amber-500 font-medium">
+              Erstes Rezept anlegen
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {recentRecipes.map((recipe) => (
+              <RecipeCard
+                key={recipe.id}
+                recipe={{
+                  id: recipe.id,
+                  title: recipe.title,
+                  description: recipe.description ?? undefined,
+                  image: recipe.image_url ?? undefined,
+                  prep_time: recipe.prep_time ?? undefined,
+                  servings: recipe.servings ?? undefined,
+                  tags: recipe.tags,
+                }}
+              />
+            ))}
+          </div>
+        )}
       </main>
 
       <BottomNav />

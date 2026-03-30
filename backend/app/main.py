@@ -59,6 +59,19 @@ def health():
     return {"status": "ok", "service": "KochSchmiede API"}
 
 
+@app.get("/api/setup/status")
+def setup_status():
+    """Check whether initial setup is required (no users have been created yet)."""
+    from app.models import User
+
+    db = SessionLocal()
+    try:
+        needs_setup = db.query(User).count() == 0
+        return {"needs_setup": needs_setup}
+    finally:
+        db.close()
+
+
 @app.get("/api/settings/public")
 def public_settings(db=None):
     """Return the subset of settings the frontend needs without authentication."""

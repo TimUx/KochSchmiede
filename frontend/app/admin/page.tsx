@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
 import Link from "next/link";
@@ -21,6 +22,7 @@ import {
   ArrowLeft,
   Plus,
   Scale,
+  Pencil,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -50,6 +52,12 @@ interface UnitRecord {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
 async function apiFetch(path: string, options: RequestInit = {}) {
   const token = typeof window !== "undefined" ? localStorage.getItem("ks_token") : null;
   const headers: Record<string, string> = {
@@ -60,7 +68,7 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Request failed");
+    throw new ApiError(err.detail ?? "Request failed", res.status);
   }
   return res.status === 204 ? null : res.json();
 }
@@ -99,6 +107,7 @@ function Toggle({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
+  const router = useRouter();
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [units, setUnits] = useState<UnitRecord[]>([]);
@@ -121,7 +130,15 @@ export default function AdminPage() {
   const [unitError, setUnitError] = useState<string | null>(null);
   const [addingUnit, setAddingUnit] = useState(false);
 
+  // Inline rename state: unitId → draft name
+  const [renamingUnit, setRenamingUnit] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
   const load = useCallback(async () => {
+    if (!localStorage.getItem("ks_token")) {
+      router.replace("/login");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -134,11 +151,17 @@ export default function AdminPage() {
       setUsers(u);
       setUnits(un);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Fehler beim Laden");
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        // Token is invalid, expired, or user lost admin rights – clear it and go to login
+        localStorage.removeItem("ks_token");
+        router.replace("/login");
+      } else {
+        setError(e instanceof Error ? e.message : "Fehler beim Laden");
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     load();
@@ -219,6 +242,22 @@ export default function AdminPage() {
       setUnitError(e instanceof Error ? e.message : "Fehler");
     } finally {
       setAddingUnit(false);
+    }
+  }
+
+  async function renameUnit(unitId: string) {
+    const name = renameValue.trim();
+    if (!name) { setUnitError("Name darf nicht leer sein"); return; }
+    try {
+      await apiFetch(`/api/admin/units/${unitId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      setRenamingUnit(null);
+      setRenameValue("");
+      await load();
+    } catch (e: unknown) {
+      setUnitError(e instanceof Error ? e.message : "Fehler");
     }
   }
 
@@ -572,18 +611,56 @@ export default function AdminPage() {
                     units.map((unit, i) => (
                       <div
                         key={unit.id}
-                        className={`flex items-center justify-between px-4 py-3 ${
+                        className={`flex items-center gap-2 px-4 py-2.5 ${
                           i !== units.length - 1 ? "border-b border-zinc-100 dark:border-zinc-800" : ""
                         }`}
                       >
-                        <span className="text-sm font-medium">{unit.name}</span>
-                        <button
-                          onClick={() => deleteUnit(unit.id, unit.name)}
-                          title="Einheit löschen"
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 transition"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {renamingUnit === unit.id ? (
+                          <>
+                            <input
+                              autoFocus
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") renameUnit(unit.id);
+                                if (e.key === "Escape") { setRenamingUnit(null); setRenameValue(""); }
+                              }}
+                              className="flex-1 px-2 py-1 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-amber-400 text-sm focus:outline-none"
+                            />
+                            <button
+                              onClick={() => renameUnit(unit.id)}
+                              title="Speichern"
+                              className="p-1.5 rounded-lg text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 transition"
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              onClick={() => { setRenamingUnit(null); setRenameValue(""); }}
+                              title="Abbrechen"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                            >
+                              <X size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="flex-1 text-sm font-medium">{unit.name}</span>
+                            <button
+                              onClick={() => { setRenamingUnit(unit.id); setRenameValue(unit.name); setUnitError(null); }}
+                              title="Umbenennen"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-amber-500 transition"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => deleteUnit(unit.id, unit.name)}
+                              title="Einheit löschen"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 transition"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     ))
                   )}

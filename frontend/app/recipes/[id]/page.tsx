@@ -1,54 +1,66 @@
 "use client";
 
-import { useState, use } from "react";
+import { useState, useEffect, use } from "react";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
 import ShareDialog from "@/components/ShareDialog";
 import Link from "next/link";
-import { ArrowLeft, Clock, Users, Edit, Heart, Share2, Printer, ChevronUp, ChevronDown } from "lucide-react";
+import Image from "next/image";
+import {
+  ArrowLeft,
+  Clock,
+  Users,
+  Edit,
+  Heart,
+  Share2,
+  Printer,
+  ChevronUp,
+  ChevronDown,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
 
-// Mock data used until API is wired
-const mockRecipe = {
-  id: "1",
-  title: "Spaghetti Carbonara",
-  description:
-    "Ein klassisches italienisches Nudelgericht aus Rom, zubereitet mit Eiern, Pecorino-Käse, Guanciale (oder Speck) und schwarzem Pfeffer.",
-  prep_time: 20,
-  cook_time: 15,
-  servings: 4,
-  tags: ["Pasta", "Italienisch", "Klassiker"],
-  ingredients: [
-    { amount: "400", unit: "g", name: "Spaghetti" },
-    { amount: "200", unit: "g", name: "Guanciale oder Speck" },
-    { amount: "4", unit: "keine Einheit", name: "Eier (davon 2 nur Eigelb)" },
-    { amount: "100", unit: "g", name: "Pecorino Romano, gerieben" },
-    { amount: "50", unit: "g", name: "Parmesan, gerieben" },
-    { amount: "", unit: "nach Geschmack", name: "Schwarzer Pfeffer, frisch gemahlen" },
-    { amount: "1", unit: "TL", name: "Salz" },
-  ],
-  ingredient_groups: [] as { name: string; ingredients: { amount: string; unit: string; name: string }[] }[],
-  steps: [
-    "Einen großen Topf mit Salzwasser zum Kochen bringen und Spaghetti al dente kochen.",
-    "Guanciale in einer großen Pfanne bei mittlerer Hitze ohne Öl knusprig braten.",
-    "In einer Schüssel Eier, Eigelbe und geriebenen Käse vermengen. Mit viel schwarzem Pfeffer würzen.",
-    "Pasta vom Herd nehmen. Etwas Kochwasser aufheben.",
-    "Spaghetti zum Guanciale in die Pfanne geben (Herd aus!). Ei-Käse-Masse schnell unterrühren.",
-    "Mit Kochwasser nach und nach eine cremige Sauce herstellen.",
-    "Sofort servieren, mit extra Käse und Pfeffer.",
-  ],
-};
+const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-/** Scale a numeric amount string by ratio. Returns the original string unchanged if non-numeric. */
-function scaleAmount(amount: string, ratio: number): string {
-  if (!amount) return amount;
+interface Ingredient {
+  id: string;
+  amount: string | null;
+  unit: string | null;
+  name: string;
+  position: number;
+}
+
+interface IngredientGroup {
+  id: string;
+  name: string;
+  position: number;
+  ingredients: Ingredient[];
+}
+
+interface Recipe {
+  id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  prep_time: number | null;
+  cook_time: number | null;
+  servings: number | null;
+  source_url: string | null;
+  tags: string[];
+  ingredients: Ingredient[];
+  ingredient_groups: IngredientGroup[];
+  steps: { id: string; position: number; instruction: string }[];
+}
+
+function scaleAmount(amount: string | null, ratio: number): string {
+  if (!amount) return "";
   const n = parseFloat(amount);
   if (isNaN(n)) return amount;
   return (n * ratio).toFixed(2).replace(/\.?0+$/, "");
 }
 
-/** Format amount + unit for display, respecting "keine Einheit" */
-function formatAmount(amount: string, unit: string): string {
-  const u = unit === "keine Einheit" || unit === "" ? "" : unit;
+function formatAmount(amount: string, unit: string | null): string {
+  const u = !unit || unit === "keine Einheit" ? "" : unit;
   if (!amount && !u) return "";
   if (!amount) return u;
   return u ? `${amount} ${u}` : amount;
@@ -56,28 +68,96 @@ function formatAmount(amount: string, unit: string): string {
 
 export default function RecipeView({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const recipe = mockRecipe;
 
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
-  const [currentServings, setCurrentServings] = useState(recipe.servings);
+  const [currentServings, setCurrentServings] = useState(4);
 
-  const ratio = currentServings / recipe.servings;
+  useEffect(() => {
+    const fetchRecipe = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = localStorage.getItem("ks_token");
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`${API}/api/recipes/${id}`, { headers });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail ?? "Rezept nicht gefunden");
+        }
+        const data: Recipe = await res.json();
+        setRecipe(data);
+        setCurrentServings(data.servings ?? 4);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Fehler beim Laden");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRecipe();
+  }, [id]);
 
-  const adjustServings = (delta: number) => {
-    setCurrentServings((prev) => Math.max(1, prev + delta));
-  };
+  const ratio = recipe ? currentServings / (recipe.servings ?? 4) : 1;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
+        <Navbar />
+        <div className="flex items-center justify-center py-32">
+          <Loader2 size={32} className="animate-spin text-amber-500" />
+        </div>
+        <BottomNav />
+      </div>
+    );
+  }
+
+  if (error || !recipe) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
+        <Navbar />
+        <main className="max-w-2xl mx-auto px-4 py-12 pb-24">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <AlertCircle size={40} className="text-red-400" />
+            <p className="text-base font-medium text-red-600 dark:text-red-400">
+              {error ?? "Rezept nicht gefunden"}
+            </p>
+            <Link
+              href="/recipes"
+              className="mt-2 px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium"
+            >
+              Zur Rezeptliste
+            </Link>
+          </div>
+        </main>
+        <BottomNav />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
       <Navbar />
       <main className="max-w-2xl mx-auto pb-24">
-        {/* Header Image */}
-        <div className="w-full h-56 bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center print:hidden">
-          <span className="text-8xl">🍝</span>
-        </div>
+        {recipe.image_url ? (
+          <div className="relative w-full h-56 print:hidden">
+            <Image
+              src={recipe.image_url}
+              alt={recipe.title}
+              fill
+              className="object-cover"
+              sizes="(max-width: 768px) 100vw, 672px"
+            />
+          </div>
+        ) : (
+          <div className="w-full h-56 bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center print:hidden">
+            <span className="text-8xl">🍳</span>
+          </div>
+        )}
 
         <div className="px-4 py-4">
-          {/* Back + Actions */}
           <div className="flex items-center justify-between mb-4 print:hidden">
             <Link
               href="/recipes"
@@ -110,93 +190,82 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
           </div>
 
           <h1 className="text-2xl font-bold mb-2">{recipe.title}</h1>
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-4">{recipe.description}</p>
+          {recipe.description && (
+            <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-4">{recipe.description}</p>
+          )}
 
-          {/* Tags */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {recipe.tags.map((tag) => (
-              <span
-                key={tag}
-                className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-3 py-1 rounded-full"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
+          {recipe.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {recipe.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-3 py-1 rounded-full"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
 
-          {/* Stats */}
           <div className="grid grid-cols-3 gap-3 mb-6">
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 text-center border border-zinc-100 dark:border-zinc-800">
-              <Clock size={18} className="mx-auto mb-1 text-amber-500" />
-              <div className="font-semibold text-sm">{recipe.prep_time} Min</div>
-              <div className="text-xs text-zinc-400">Vorbereitung</div>
-            </div>
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 text-center border border-zinc-100 dark:border-zinc-800">
-              <Clock size={18} className="mx-auto mb-1 text-amber-500" />
-              <div className="font-semibold text-sm">{recipe.cook_time} Min</div>
-              <div className="text-xs text-zinc-400">Kochzeit</div>
-            </div>
-            {/* Servings scaler */}
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 text-center border border-zinc-100 dark:border-zinc-800">
-              <Users size={18} className="mx-auto mb-1 text-amber-500" />
-              <div className="flex items-center justify-center gap-2">
-                <button
-                  onClick={() => adjustServings(-1)}
-                  className="p-0.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition print:hidden"
-                  aria-label="Portionen verringern"
-                >
-                  <ChevronDown size={14} />
-                </button>
-                <span className="font-semibold text-sm min-w-[1.5rem]">{currentServings}</span>
-                <button
-                  onClick={() => adjustServings(1)}
-                  className="p-0.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition print:hidden"
-                  aria-label="Portionen erhöhen"
-                >
-                  <ChevronUp size={14} />
-                </button>
-              </div>
-              <div className="text-xs text-zinc-400">Portionen</div>
-            </div>
-          </div>
-
-          {/* Ingredients */}
-          <div className="mb-6">
-            <h2 className="font-bold text-lg mb-3">Zutaten</h2>
-
-            {/* Ungrouped ingredients */}
-            {recipe.ingredients.length > 0 && (
-              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden mb-4">
-                {recipe.ingredients.map((ing, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-center justify-between px-4 py-3 ${
-                      i !== recipe.ingredients.length - 1
-                        ? "border-b border-zinc-100 dark:border-zinc-800"
-                        : ""
-                    }`}
-                  >
-                    <span className="font-medium text-sm">{ing.name}</span>
-                    <span className="text-zinc-500 dark:text-zinc-400 text-sm">
-                      {formatAmount(scaleAmount(ing.amount, ratio), ing.unit)}
-                    </span>
-                  </div>
-                ))}
+            {recipe.prep_time != null && (
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 text-center border border-zinc-100 dark:border-zinc-800">
+                <Clock size={18} className="mx-auto mb-1 text-amber-500" />
+                <div className="font-semibold text-sm">{recipe.prep_time} Min</div>
+                <div className="text-xs text-zinc-400">Vorbereitung</div>
               </div>
             )}
+            {recipe.cook_time != null && (
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 text-center border border-zinc-100 dark:border-zinc-800">
+                <Clock size={18} className="mx-auto mb-1 text-amber-500" />
+                <div className="font-semibold text-sm">{recipe.cook_time} Min</div>
+                <div className="text-xs text-zinc-400">Kochzeit</div>
+              </div>
+            )}
+            {recipe.servings != null && (
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 text-center border border-zinc-100 dark:border-zinc-800">
+                <Users size={18} className="mx-auto mb-1 text-amber-500" />
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => setCurrentServings((p) => Math.max(1, p - 1))}
+                    className="p-0.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition print:hidden"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                  <span className="font-semibold text-sm min-w-[1.5rem]">{currentServings}</span>
+                  <button
+                    onClick={() => setCurrentServings((p) => p + 1)}
+                    className="p-0.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition print:hidden"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                </div>
+                <div className="text-xs text-zinc-400">Portionen</div>
+              </div>
+            )}
+          </div>
 
-            {/* Grouped ingredients */}
-            {recipe.ingredient_groups.map((group, gi) => (
-              <div key={gi} className="mb-4">
-                <h3 className="text-sm font-semibold text-amber-600 dark:text-amber-400 mb-2">
-                  {group.name}
-                </h3>
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
-                  {group.ingredients.map((ing, i) => (
+          {recipe.source_url && (
+            <a
+              href={recipe.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mb-4 text-xs text-amber-500 underline"
+            >
+              Originalrezept ansehen
+            </a>
+          )}
+
+          {(recipe.ingredients.length > 0 || recipe.ingredient_groups.length > 0) && (
+            <div className="mb-6">
+              <h2 className="font-bold text-lg mb-3">Zutaten</h2>
+              {recipe.ingredients.length > 0 && (
+                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden mb-4">
+                  {recipe.ingredients.map((ing, i) => (
                     <div
-                      key={i}
+                      key={ing.id}
                       className={`flex items-center justify-between px-4 py-3 ${
-                        i !== group.ingredients.length - 1
+                        i !== recipe.ingredients.length - 1
                           ? "border-b border-zinc-100 dark:border-zinc-800"
                           : ""
                       }`}
@@ -208,32 +277,59 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
                     </div>
                   ))}
                 </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Steps */}
-          <div className="mb-6">
-            <h2 className="font-bold text-lg mb-3">Zubereitung</h2>
-            <div className="space-y-4">
-              {recipe.steps.map((step, i) => (
-                <div key={i} className="flex gap-4">
-                  <div className="shrink-0 w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center text-sm font-bold print:rounded-none print:bg-transparent print:text-zinc-800 print:border print:border-zinc-300">
-                    {i + 1}
-                  </div>
-                  <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 flex-1 text-sm border border-zinc-100 dark:border-zinc-800">
-                    {step}
+              )}
+              {recipe.ingredient_groups.map((group) => (
+                <div key={group.id} className="mb-4">
+                  <h3 className="text-sm font-semibold text-amber-600 dark:text-amber-400 mb-2">
+                    {group.name}
+                  </h3>
+                  <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
+                    {group.ingredients.map((ing, i) => (
+                      <div
+                        key={ing.id}
+                        className={`flex items-center justify-between px-4 py-3 ${
+                          i !== group.ingredients.length - 1
+                            ? "border-b border-zinc-100 dark:border-zinc-800"
+                            : ""
+                        }`}
+                      >
+                        <span className="font-medium text-sm">{ing.name}</span>
+                        <span className="text-zinc-500 dark:text-zinc-400 text-sm">
+                          {formatAmount(scaleAmount(ing.amount, ratio), ing.unit)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          )}
+
+          {recipe.steps.length > 0 && (
+            <div className="mb-6">
+              <h2 className="font-bold text-lg mb-3">Zubereitung</h2>
+              <div className="space-y-4">
+                {recipe.steps
+                  .slice()
+                  .sort((a, b) => a.position - b.position)
+                  .map((step, i) => (
+                    <div key={step.id} className="flex gap-4">
+                      <div className="shrink-0 w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center text-sm font-bold print:rounded-none print:bg-transparent print:text-zinc-800 print:border print:border-zinc-300">
+                        {i + 1}
+                      </div>
+                      <div className="bg-white dark:bg-zinc-900 rounded-2xl p-3 flex-1 text-sm border border-zinc-100 dark:border-zinc-800">
+                        {step.instruction}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
       <BottomNav />
 
-      {/* Share dialog */}
       <ShareDialog
         recipeId={id}
         recipeTitle={recipe.title}
@@ -243,4 +339,3 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
     </div>
   );
 }
-

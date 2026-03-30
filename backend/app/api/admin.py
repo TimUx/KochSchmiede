@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_admin_user, get_current_user
 from app.database import get_db
 from app.models import User, Unit
-from app.schemas import SiteSettingsOut, SiteSettingsUpdate, UnitCreate, UnitOut, UserCreate, UserOut
+from app.schemas import SiteSettingsOut, SiteSettingsUpdate, UnitCreate, UnitOut, UnitUpdate, UserCreate, UserOut
 from app.services.auth import create_user, get_user_by_username, hash_password
 from app.services.settings import get_settings, update_settings
 
@@ -115,6 +115,28 @@ def create_unit(
     position = db.query(Unit).count()
     unit = Unit(name=name, position=position)
     db.add(unit)
+    db.commit()
+    db.refresh(unit)
+    return unit
+
+
+@router.patch("/units/{unit_id}", response_model=UnitOut)
+def rename_unit(
+    unit_id: str,
+    unit_in: UnitUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    unit = db.query(Unit).filter(Unit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
+    name = unit_in.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name darf nicht leer sein")
+    existing = db.query(Unit).filter(Unit.name == name, Unit.id != unit_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Einheit existiert bereits")
+    unit.name = name
     db.commit()
     db.refresh(unit)
     return unit

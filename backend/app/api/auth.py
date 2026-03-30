@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,6 +12,8 @@ from app.services.auth import (
     decode_token,
     get_user_by_id,
     get_user_by_username,
+    hash_password,
+    verify_password,
 )
 from app.services.settings import get_settings
 
@@ -70,4 +73,31 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
 @router.get("/me", response_model=UserOut)
 def me(current_user=Depends(get_current_user)):
+    return current_user
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.patch("/me/password", response_model=UserOut)
+def change_password(
+    payload: PasswordChange,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Aktuelles Passwort ist falsch",
+        )
+    if len(payload.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Neues Passwort muss mindestens 8 Zeichen haben",
+        )
+    current_user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    db.refresh(current_user)
     return current_user
