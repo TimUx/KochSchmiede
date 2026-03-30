@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -10,6 +11,7 @@ from app.services.auth import (
     create_access_token,
     create_user,
     decode_token,
+    get_user_by_email,
     get_user_by_id,
     get_user_by_username,
     hash_password,
@@ -55,7 +57,15 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         )
     if get_user_by_username(db, user_in.username):
         raise HTTPException(status_code=400, detail="Username already taken")
-    return create_user(db, user_in)
+    if get_user_by_email(db, user_in.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    try:
+        return create_user(db, user_in)
+    except IntegrityError:
+        # Safety net for race conditions where two concurrent requests slip through
+        # the explicit username/email checks above at the same time.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Username or email already taken")
 
 
 @router.post("/login", response_model=Token)
