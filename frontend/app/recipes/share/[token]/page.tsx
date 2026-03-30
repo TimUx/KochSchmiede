@@ -91,7 +91,7 @@ export default function SharedRecipePage({ params }: { params: Promise<{ token: 
         </Link>
       </nav>
 
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-16">
+      <main className="w-full px-4 py-6 pb-16">
         {loading && (
           <div className="text-center py-20 text-zinc-400">Lade Rezept…</div>
         )}

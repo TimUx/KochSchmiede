@@ -3,6 +3,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.api import admin_router, auth_router, import_router, recipe_router
 from app.config import settings
@@ -10,6 +11,40 @@ from app.database import Base, SessionLocal, engine
 
 # Create tables on startup (use Alembic in production)
 Base.metadata.create_all(bind=engine)
+
+
+def _migrate_site_settings() -> None:
+    """Add columns introduced after the initial schema creation.
+
+    Uses ``ADD COLUMN IF NOT EXISTS`` so it is safe to run on every startup –
+    it is a no-op when the columns already exist.  Column names and types are
+    taken from the hardcoded ``_SITE_SETTINGS_NEW_COLUMNS`` list; no
+    user-supplied input is interpolated into the SQL.
+    """
+    _SITE_SETTINGS_NEW_COLUMNS = [
+        ("logo_light_url", "VARCHAR(512)"),
+        ("logo_dark_url", "VARCHAR(512)"),
+        ("favicon_url", "VARCHAR(512)"),
+        ("appicon_url", "VARCHAR(512)"),
+    ]
+    # Allowed column names and types – validated before interpolation so that
+    # accidental future changes to the list cannot introduce SQL injection.
+    _allowed_names = {col for col, _ in _SITE_SETTINGS_NEW_COLUMNS}
+    _allowed_types = {"VARCHAR(512)"}
+    with engine.connect() as conn:
+        for col_name, col_type in _SITE_SETTINGS_NEW_COLUMNS:
+            if col_name not in _allowed_names or col_type not in _allowed_types:
+                raise ValueError(f"Unexpected migration value: {col_name!r} {col_type!r}")
+            conn.execute(
+                text(
+                    f"ALTER TABLE site_settings ADD COLUMN IF NOT EXISTS"
+                    f" {col_name} {col_type}"
+                )
+            )
+        conn.commit()
+
+
+_migrate_site_settings()
 
 # Default units seeded when the units table is first created
 _DEFAULT_UNITS = [

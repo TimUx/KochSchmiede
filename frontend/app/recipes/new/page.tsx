@@ -108,7 +108,7 @@ export default function NewRecipePage() {
 
   return (
     <AppShell>
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
+      <main className="w-full px-4 py-6 pb-24 lg:pb-8">
         <div className="flex items-center justify-between mb-6">
           <Link href="/recipes" className="flex items-center gap-1 text-zinc-500 text-sm">
             <ArrowLeft size={16} /> Zurück
