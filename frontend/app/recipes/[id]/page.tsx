@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import Navbar from "@/components/Navbar";
-import BottomNav from "@/components/BottomNav";
+
+
+import AppShell from "@/components/AppShell";
 import ShareDialog from "@/components/ShareDialog";
 import Link from "next/link";
 import Image from "next/image";
@@ -102,23 +103,14 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
 
   const ratio = recipe ? currentServings / (recipe.servings ?? 4) : 1;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-        <Navbar />
+  return (
+    <AppShell>
+      {loading ? (
         <div className="flex items-center justify-center py-32">
           <Loader2 size={32} className="animate-spin text-amber-500" />
         </div>
-        <BottomNav />
-      </div>
-    );
-  }
-
-  if (error || !recipe) {
-    return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-        <Navbar />
-        <main className="max-w-2xl mx-auto px-4 py-12 pb-24">
+      ) : error || !recipe ? (
+        <main className="max-w-2xl mx-auto px-4 py-12 pb-24 lg:pb-8">
           <div className="flex flex-col items-center gap-3 text-center">
             <AlertCircle size={40} className="text-red-400" />
             <p className="text-base font-medium text-red-600 dark:text-red-400">
@@ -132,15 +124,8 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
             </Link>
           </div>
         </main>
-        <BottomNav />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-      <Navbar />
-      <main className="max-w-2xl mx-auto pb-24">
+      ) : (
+      <main className="max-w-2xl mx-auto pb-24 lg:pb-8">
         {recipe.image_url ? (
           <div className="relative w-full h-56 print:hidden">
             <Image
@@ -327,15 +312,14 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
           )}
         </div>
       </main>
-
-      <BottomNav />
+      )}
 
       <ShareDialog
         recipeId={id}
-        recipeTitle={recipe.title}
+        recipeTitle={recipe?.title ?? ""}
         open={shareOpen}
         onClose={() => setShareOpen(false)}
       />
-    </div>
+    </AppShell>
   );
 }

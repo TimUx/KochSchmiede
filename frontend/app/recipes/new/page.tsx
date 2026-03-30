@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
-import BottomNav from "@/components/BottomNav";
+import AppShell from "@/components/AppShell";
 import IngredientGroupEditor, {
   type Ingredient,
   type IngredientGroup,
@@ -108,9 +107,8 @@ export default function NewRecipePage() {
     "w-full px-4 py-3 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white text-sm";
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-      <Navbar />
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
+    <AppShell>
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
         <div className="flex items-center justify-between mb-6">
           <Link href="/recipes" className="flex items-center gap-1 text-zinc-500 text-sm">
             <ArrowLeft size={16} /> Zurück
@@ -285,7 +283,6 @@ export default function NewRecipePage() {
           </div>
         </div>
       </main>
-      <BottomNav />
-    </div>
+    </AppShell>
   );
 }

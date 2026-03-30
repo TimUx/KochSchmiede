@@ -2,8 +2,9 @@
 
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
-import BottomNav from "@/components/BottomNav";
+
+
+import AppShell from "@/components/AppShell";
 import IngredientGroupEditor, {
   type Ingredient,
   type IngredientGroup,
@@ -148,22 +149,14 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
   const inputCls =
     "w-full px-4 py-3 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white text-sm";
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-        <Navbar />
+  return (
+    <AppShell>
+      {loading ? (
         <div className="flex items-center justify-center py-32">
           <Loader2 size={32} className="animate-spin text-amber-500" />
         </div>
-        <BottomNav />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-      <Navbar />
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
+      ) : (
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
         <div className="flex items-center justify-between mb-6">
           <Link href={`/recipes/${id}`} className="flex items-center gap-1 text-zinc-500 text-sm">
             <ArrowLeft size={16} /> Zurück
@@ -329,7 +322,7 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
           </div>
         </div>
       </main>
-      <BottomNav />
-    </div>
+      )}
+    </AppShell>
   );
 }

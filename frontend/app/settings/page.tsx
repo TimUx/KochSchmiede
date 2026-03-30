@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
-import BottomNav from "@/components/BottomNav";
+import AppShell from "@/components/AppShell";
 import ThemeToggle from "@/components/ThemeToggle";
 import Link from "next/link";
 import {
@@ -151,9 +150,8 @@ export default function SettingsPage() {
     "w-full px-3 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white";
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-      <Navbar />
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
+    <AppShell>
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
         <h1 className="text-2xl font-bold mb-6">Einstellungen</h1>
 
         {/* Admin panel link – only shown for admins */}
@@ -403,7 +401,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </main>
-      <BottomNav />
-    </div>
+    </AppShell>
   );
 }

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import Navbar from "@/components/Navbar";
-import BottomNav from "@/components/BottomNav";
+import AppShell from "@/components/AppShell";
 import RecipeCard from "@/components/RecipeCard";
 import InstallPrompt from "@/components/InstallPrompt";
 import Link from "next/link";
@@ -74,10 +73,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-      <Navbar />
-
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
+    <AppShell>
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold mb-1">Meine Rezepte</h1>
           <p className="text-zinc-500 dark:text-zinc-400 text-sm">
@@ -177,8 +174,7 @@ export default function Dashboard() {
         )}
       </main>
 
-      <BottomNav />
       <InstallPrompt />
-    </div>
+    </AppShell>
   );
 }
