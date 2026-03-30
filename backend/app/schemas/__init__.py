@@ -60,7 +60,7 @@ class UnitUpdate(BaseModel):
     name: str
 
 
-
+class UnitOut(BaseModel):
     id: str
     name: str
     position: int
