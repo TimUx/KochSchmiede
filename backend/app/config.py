@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://frontend:3000"]
 
+    # Optional AI / LLM settings (Ollama-compatible endpoint)
+    # Leave AI_ENDPOINT empty to disable AI-assisted recipe parsing.
+    # Example: AI_ENDPOINT=http://ollama:11434
+    AI_ENDPOINT: str = ""
+    AI_MODEL: str = "llama3.2"
+
     @field_validator("SECRET_KEY")
     @classmethod
     def secret_key_must_be_set(cls, v: str) -> str:
