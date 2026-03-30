@@ -42,3 +42,4 @@ coverage/
 .vscode/
 *.swp
 *.swo
+*.db

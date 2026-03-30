@@ -5,7 +5,7 @@ psycopg2-binary==2.9.10
 pydantic[email]==2.9.2
 pydantic-settings==2.5.2
 python-jose[cryptography]==3.4.0
-passlib[bcrypt]==1.7.4
+bcrypt==4.3.0
 python-multipart==0.0.22
 requests==2.32.3
 beautifulsoup4==4.12.3
