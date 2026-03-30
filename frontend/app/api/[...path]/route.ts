@@ -7,12 +7,6 @@ const BACKEND_URL =
 
 type Context = { params: Promise<{ path: string[] }> };
 
-// RequestInit does not include `duplex` in the TypeScript types yet,
-// but it is required by the Fetch spec when streaming a request body.
-interface RequestInitWithDuplex extends RequestInit {
-  duplex?: "half";
-}
-
 async function proxyRequest(req: NextRequest, context: Context): Promise<NextResponse> {
   const { path } = await context.params;
   const url = `${BACKEND_URL}/api/${path.join("/")}${req.nextUrl.search}`;
@@ -20,14 +14,18 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
   const headers = new Headers(req.headers);
   headers.delete("host");
 
-  const init: RequestInitWithDuplex = {
+  const init: RequestInit = {
     method: req.method,
     headers,
   };
 
   if (req.method !== "GET" && req.method !== "HEAD") {
-    init.body = req.body;
-    init.duplex = "half";
+    // Buffer the entire body before forwarding to avoid conflicts between the
+    // forwarded Content-Length header and chunked transfer encoding that can
+    // occur when streaming the body with duplex: "half".
+    const body = await req.arrayBuffer();
+    init.body = body;
+    headers.set("content-length", String(body.byteLength));
   }
 
   try {

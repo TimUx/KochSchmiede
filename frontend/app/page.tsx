@@ -28,7 +28,20 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    const fetchRecipes = async () => {
+    const init = async () => {
+      try {
+        const statusRes = await fetch(`${API}/api/setup/status`);
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          if (status.needs_setup) {
+            router.replace("/setup");
+            return;
+          }
+        }
+      } catch {
+        // if status check fails, continue to show the home page
+      }
+
       try {
         const token = localStorage.getItem("ks_token");
         const headers: Record<string, string> = {};
@@ -41,8 +54,8 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
-    fetchRecipes();
-  }, []);
+    init();
+  }, [router]);
 
   const categoryCount = useMemo(
     () => new Set(recipes.flatMap((r) => r.tags)).size,
