@@ -109,7 +109,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
           <Loader2 size={32} className="animate-spin text-amber-500" />
         </div>
       ) : error || !recipe ? (
-        <main className="max-w-2xl mx-auto px-4 py-12 pb-24 lg:pb-8">
+        <main className="w-full px-4 py-12 pb-24 lg:pb-8">
           <div className="flex flex-col items-center gap-3 text-center">
             <AlertCircle size={40} className="text-red-400" />
             <p className="text-base font-medium text-red-600 dark:text-red-400">
@@ -125,7 +125,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
         </main>
       ) : (
       <>
-      <main className="max-w-2xl mx-auto pb-24 lg:pb-8">
+      <main className="w-full pb-24 lg:pb-8">
         {recipe.image_url ? (
           <div className="relative w-full h-56 print:hidden">
             <Image

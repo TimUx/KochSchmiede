@@ -325,7 +325,7 @@ export default function AdminPage() {
 
   return (
     <AppShell>
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
+      <main className="w-full px-4 py-6 pb-24 lg:pb-8">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <Link href="/settings" className="text-zinc-500 dark:text-zinc-400">

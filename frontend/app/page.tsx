@@ -74,7 +74,7 @@ export default function Dashboard() {
 
   return (
     <AppShell>
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
+      <main className="w-full px-4 py-6 pb-24 lg:pb-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold mb-1">Meine Rezepte</h1>
           <p className="text-zinc-500 dark:text-zinc-400 text-sm">

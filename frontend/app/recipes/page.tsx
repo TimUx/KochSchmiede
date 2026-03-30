@@ -80,7 +80,7 @@ function RecipesContent() {
 
   return (
     <AppShell>
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
+      <main className="w-full px-4 py-6 pb-24 lg:pb-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold">Alle Rezepte</h1>
           <button className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">

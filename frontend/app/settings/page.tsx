@@ -151,7 +151,7 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
+      <main className="w-full px-4 py-6 pb-24 lg:pb-8">
         <h1 className="text-2xl font-bold mb-6">Einstellungen</h1>
 
         {/* Admin panel link – only shown for admins */}
