@@ -176,3 +176,8 @@ class SiteSettings(Base):
     # When True, URL imports block private/loopback IPs (safe default for internet-facing installs).
     # Set to False when running on a home server that imports from LAN addresses.
     ssrf_protection = Column(Boolean, nullable=False, default=True)
+    # Custom logo/icon URLs – None means use the bundled default asset.
+    logo_light_url = Column(String(512), nullable=True)
+    logo_dark_url = Column(String(512), nullable=True)
+    favicon_url = Column(String(512), nullable=True)
+    appicon_url = Column(String(512), nullable=True)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
@@ -23,6 +23,9 @@ import {
   Plus,
   Scale,
   Pencil,
+  Image,
+  Upload,
+  RotateCcw,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,6 +34,10 @@ interface SiteSettings {
   site_mode: "public" | "private";
   registration_mode: "open" | "admin_only";
   ssrf_protection: boolean;
+  logo_light_url?: string | null;
+  logo_dark_url?: string | null;
+  favicon_url?: string | null;
+  appicon_url?: string | null;
 }
 
 interface UserRecord {
@@ -133,6 +140,16 @@ export default function AdminPage() {
   // Inline rename state: unitId → draft name
   const [renamingUnit, setRenamingUnit] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+
+  // Logo upload state
+  const [logoUploading, setLogoUploading] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const logoInputRefs = {
+    logo_light: useRef<HTMLInputElement>(null),
+    logo_dark: useRef<HTMLInputElement>(null),
+    favicon: useRef<HTMLInputElement>(null),
+    appicon: useRef<HTMLInputElement>(null),
+  };
 
   const load = useCallback(async () => {
     if (!localStorage.getItem("ks_token")) {
@@ -268,6 +285,41 @@ export default function AdminPage() {
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
+  async function uploadLogo(logoType: string, file: File) {
+    setLogoError(null);
+    setLogoUploading(logoType);
+    try {
+      const token = localStorage.getItem("ks_token");
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API}/api/admin/logos/${logoType}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail ?? "Upload fehlgeschlagen");
+      }
+      const updated = await res.json();
+      setSettings(updated);
+    } catch (e: unknown) {
+      setLogoError(e instanceof Error ? e.message : "Upload fehlgeschlagen");
+    } finally {
+      setLogoUploading(null);
+    }
+  }
+
+  async function resetLogo(logoType: string) {
+    setLogoError(null);
+    try {
+      const updated = await apiFetch(`/api/admin/logos/${logoType}`, { method: "DELETE" });
+      setSettings(updated);
+    } catch (e: unknown) {
+      setLogoError(e instanceof Error ? e.message : "Fehler beim Zurücksetzen");
     }
   }
 
@@ -451,6 +503,92 @@ export default function AdminPage() {
                       </span>
                     </div>
                   )}
+                </div>
+
+                {/* Logos & Icons */}
+                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
+                    <h2 className="font-semibold text-sm flex items-center gap-2">
+                      <Image size={16} className="text-amber-500" />
+                      Logos &amp; Icons
+                    </h2>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      Eigene Logos hochladen (PNG, JPEG, WEBP · max. 5 MB)
+                    </p>
+                  </div>
+                  {logoError && (
+                    <div className="mx-4 mt-3 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl p-2 text-xs">
+                      <AlertCircle size={12} className="shrink-0" />
+                      <span className="flex-1">{logoError}</span>
+                      <button onClick={() => setLogoError(null)}><X size={12} /></button>
+                    </div>
+                  )}
+                  <div className="p-4 space-y-3">
+                    {(
+                      [
+                        { key: "logo_light", label: "Logo (Hell)", urlKey: "logo_light_url" as const },
+                        { key: "logo_dark",  label: "Logo (Dunkel)", urlKey: "logo_dark_url" as const },
+                        { key: "favicon",   label: "Favicon", urlKey: "favicon_url" as const },
+                        { key: "appicon",   label: "App-Icon", urlKey: "appicon_url" as const },
+                      ] as const
+                    ).map(({ key, label, urlKey }) => {
+                      const currentUrl = settings[urlKey];
+                      const isUploading = logoUploading === key;
+                      return (
+                        <div key={key} className="flex items-center gap-3">
+                          {/* Preview */}
+                          <div className="w-12 h-12 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center overflow-hidden shrink-0">
+                            {currentUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={currentUrl} alt={label} className="w-full h-full object-contain" />
+                            ) : (
+                              <Image size={20} className="text-zinc-300 dark:text-zinc-600" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium">{label}</div>
+                            <div className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                              {currentUrl ? "Benutzerdefiniert" : "Standard"}
+                            </div>
+                          </div>
+                          {/* Hidden file input */}
+                          <input
+                            ref={logoInputRefs[key]}
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadLogo(key, file);
+                              e.target.value = "";
+                            }}
+                          />
+                          <button
+                            onClick={() => logoInputRefs[key].current?.click()}
+                            disabled={isUploading}
+                            title="Hochladen"
+                            className="p-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50 transition shrink-0"
+                          >
+                            {isUploading ? (
+                              <span className="text-xs px-0.5">…</span>
+                            ) : (
+                              <Upload size={15} />
+                            )}
+                          </button>
+                          {currentUrl && (
+                            <button
+                              onClick={() => resetLogo(key)}
+                              disabled={isUploading}
+                              title="Zurücksetzen"
+                              className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-red-500 disabled:opacity-50 transition shrink-0"
+                            >
+                              <RotateCcw size={15} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
