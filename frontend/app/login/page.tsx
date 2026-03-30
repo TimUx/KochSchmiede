@@ -17,17 +17,43 @@ export default function LoginPage() {
 
   // Redirect already-authenticated users away from the login page,
   // or to the setup wizard if no admin has been created yet.
+  // Retries up to 5 times (with 2 s delay) so a slow-starting backend
+  // does not permanently strand first-time users on the login page.
   useEffect(() => {
     if (localStorage.getItem("ks_token")) {
       router.replace("/");
       return;
     }
-    fetch(`${API}/api/setup/status`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.needs_setup) router.replace("/setup");
-      })
-      .catch(() => {});
+
+    let cancelled = false;
+    let attempt = 0;
+    const maxAttempts = 5;
+    const retryDelay = 2000;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function checkSetup() {
+      fetch(`${API}/api/setup/status`)
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((data) => {
+          if (!cancelled && data.needs_setup) router.replace("/setup");
+        })
+        .catch(() => {
+          attempt++;
+          if (!cancelled && attempt < maxAttempts) {
+            retryTimer = setTimeout(checkSetup, retryDelay);
+          }
+        });
+    }
+
+    checkSetup();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+    };
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
