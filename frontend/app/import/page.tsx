@@ -2,8 +2,8 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
-import BottomNav from "@/components/BottomNav";
+
+import AppShell from "@/components/AppShell";
 import {
   Globe,
   FileText,
@@ -277,9 +277,8 @@ export default function ImportPage() {
   );
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-      <Navbar />
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
+    <AppShell>
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
         <h1 className="text-2xl font-bold mb-2">Import Center</h1>
         <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-6">
           Rezepte importieren aus verschiedenen Quellen
@@ -567,7 +566,6 @@ export default function ImportPage() {
           </div>
         )}
       </main>
-      <BottomNav />
-    </div>
+    </AppShell>
   );
 }

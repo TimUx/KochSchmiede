@@ -10,7 +10,7 @@ export default function Logo() {
 
   useEffect(() => setMounted(true), []);
 
-  if (!mounted) return <div className="h-10 w-44" />;
+  if (!mounted) return <div className="h-8 w-12" />;
 
   const isDark = resolvedTheme === "dark";
 
@@ -18,8 +18,9 @@ export default function Logo() {
     <Image
       src={isDark ? "/assets/kochschmiede_logo_dark.png" : "/assets/kochschmiede_logo_light.png"}
       alt="KochSchmiede"
-      width={180}
-      height={40}
+      width={120}
+      height={80}
+      className="h-8 w-auto"
       priority
     />
   );

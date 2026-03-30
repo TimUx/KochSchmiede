@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/Navbar";
-import BottomNav from "@/components/BottomNav";
+
+import AppShell from "@/components/AppShell";
 import Link from "next/link";
 import {
   Shield,
@@ -272,9 +272,8 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#1e1e2e]">
-      <Navbar />
-      <main className="max-w-2xl mx-auto px-4 py-6 pb-24">
+    <AppShell>
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 lg:pb-8">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <Link href="/settings" className="text-zinc-500 dark:text-zinc-400">
@@ -670,7 +669,6 @@ export default function AdminPage() {
           </>
         )}
       </main>
-      <BottomNav />
-    </div>
+    </AppShell>
   );
 }
