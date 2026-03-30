@@ -202,6 +202,10 @@ class SiteSettingsOut(BaseModel):
     site_mode: Literal["public", "private"]
     registration_mode: Literal["open", "admin_only"]
     ssrf_protection: bool
+    logo_light_url: Optional[str] = None
+    logo_dark_url: Optional[str] = None
+    favicon_url: Optional[str] = None
+    appicon_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

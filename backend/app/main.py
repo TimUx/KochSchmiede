@@ -1,5 +1,8 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import admin_router, auth_router, import_router, recipe_router
 from app.config import settings
@@ -53,6 +56,11 @@ app.include_router(recipe_router, prefix="/api")
 app.include_router(import_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 
+# Serve uploaded logo/icon files
+_UPLOADS_DIR = "/app/uploads"
+os.makedirs(_UPLOADS_DIR, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
+
 
 @app.get("/api/health")
 def health():
@@ -84,6 +92,10 @@ def public_settings(db=None):
         return {
             "site_mode": s.site_mode,
             "registration_mode": s.registration_mode,
+            "logo_light_url": s.logo_light_url,
+            "logo_dark_url": s.logo_dark_url,
+            "favicon_url": s.favicon_url,
+            "appicon_url": s.appicon_url,
         }
     finally:
         db.close()

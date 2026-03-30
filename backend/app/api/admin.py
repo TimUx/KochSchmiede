@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+import os
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_admin_user, get_current_user
@@ -9,6 +13,19 @@ from app.services.auth import create_user, get_user_by_username, hash_password
 from app.services.settings import get_settings, update_settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# ─── Logo / Icon upload helpers ───────────────────────────────────────────────
+
+UPLOAD_DIR = Path("/app/uploads/logos")
+ALLOWED_LOGO_TYPES = {"logo_light", "logo_dark", "favicon", "appicon"}
+_LOGO_FIELD_MAP = {
+    "logo_light": "logo_light_url",
+    "logo_dark": "logo_dark_url",
+    "favicon": "favicon_url",
+    "appicon": "appicon_url",
+}
+ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
 # ─── Site Settings ────────────────────────────────────────────────────────────
@@ -34,6 +51,65 @@ def write_settings(
         registration_mode=payload.registration_mode,
         ssrf_protection=payload.ssrf_protection,
     )
+
+
+# ─── Logo / Icon Management ───────────────────────────────────────────────────
+
+
+@router.post("/logos/{logo_type}", response_model=SiteSettingsOut)
+async def upload_logo(
+    logo_type: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    if logo_type not in ALLOWED_LOGO_TYPES:
+        raise HTTPException(status_code=400, detail=f"Ungültiger Logo-Typ. Erlaubt: {', '.join(sorted(ALLOWED_LOGO_TYPES))}")
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="Ungültiges Dateiformat. Erlaubt: PNG, JPEG, WEBP, GIF")
+
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="Datei zu groß (max. 5 MB)")
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Determine extension from content type
+    ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+    ext = ext_map.get(file.content_type, ".png")
+    filename = f"{logo_type}_{uuid.uuid4().hex[:8]}{ext}"
+    dest = UPLOAD_DIR / filename
+
+    # Delete the previous custom file for this slot (if any)
+    settings_row = get_settings(db)
+    old_url: str | None = getattr(settings_row, _LOGO_FIELD_MAP[logo_type])
+    if old_url:
+        old_path = UPLOAD_DIR / os.path.basename(old_url)
+        old_path.unlink(missing_ok=True)
+
+    dest.write_bytes(data)
+
+    url = f"/api/uploads/logos/{filename}"
+    return update_settings(db, **{_LOGO_FIELD_MAP[logo_type]: url})
+
+
+@router.delete("/logos/{logo_type}", response_model=SiteSettingsOut)
+def reset_logo(
+    logo_type: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    if logo_type not in ALLOWED_LOGO_TYPES:
+        raise HTTPException(status_code=400, detail=f"Ungültiger Logo-Typ. Erlaubt: {', '.join(sorted(ALLOWED_LOGO_TYPES))}")
+
+    settings_row = get_settings(db)
+    field = _LOGO_FIELD_MAP[logo_type]
+    old_url: str | None = getattr(settings_row, field)
+    if old_url:
+        old_path = UPLOAD_DIR / os.path.basename(old_url)
+        old_path.unlink(missing_ok=True)
+
+    return update_settings(db, _force_null_keys={field}, **{field: None})
 
 
 # ─── User Management ──────────────────────────────────────────────────────────
