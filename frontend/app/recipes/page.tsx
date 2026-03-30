@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
 import RecipeCard from "@/components/RecipeCard";
@@ -19,12 +20,17 @@ interface ApiRecipe {
   tags: string[];
 }
 
-export default function RecipesPage() {
+function RecipesContent() {
+  const searchParams = useSearchParams();
   const [allRecipes, setAllRecipes] = useState<ApiRecipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") ?? "");
+
+  useEffect(() => {
+    setSearchQuery(searchParams.get("q") ?? "");
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchRecipes = async () => {
@@ -181,5 +187,13 @@ export default function RecipesPage() {
       </main>
       <BottomNav />
     </div>
+  );
+}
+
+export default function RecipesPage() {
+  return (
+    <Suspense>
+      <RecipesContent />
+    </Suspense>
   );
 }

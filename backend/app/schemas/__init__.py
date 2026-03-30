@@ -56,7 +56,11 @@ class UnitCreate(BaseModel):
     name: str
 
 
-class UnitOut(BaseModel):
+class UnitUpdate(BaseModel):
+    name: str
+
+
+
     id: str
     name: str
     position: int
