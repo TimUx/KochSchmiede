@@ -10,6 +10,17 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**" },
     ],
   },
+  async rewrites() {
+    // BACKEND_URL must be a valid base URL without a trailing slash,
+    // e.g. "http://backend:8000" (set in docker-compose.yml).
+    const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendUrl}/api/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
