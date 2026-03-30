@@ -174,14 +174,25 @@ class RecipeOut(BaseModel):
 # ─── Import ───────────────────────────────────────────────────────────────────
 
 
+class ImportIngredientGroup(BaseModel):
+    """A named group of ingredients extracted during import (e.g. 'Für den Teig')."""
+
+    name: str
+    ingredients: list[str] = []
+
+
 class ImportResult(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
     source_url: Optional[str] = None
     ingredients: list[str] = []
+    ingredient_groups: list[ImportIngredientGroup] = []
     steps: list[str] = []
     tags: list[str] = []
+    prep_time: Optional[int] = None
+    cook_time: Optional[int] = None
+    servings: Optional[int] = None
 
 
 # ─── Site Settings ────────────────────────────────────────────────────────────
