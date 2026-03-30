@@ -30,7 +30,7 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="w-full flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1e1e2e] sticky top-0 z-50">
+    <nav className="lg:hidden w-full flex items-center justify-between px-4 py-2 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm sticky top-0 z-50">
       <Logo />
       <div className="flex items-center gap-2">
         <LanguageSwitcher />

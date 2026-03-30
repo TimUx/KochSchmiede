@@ -3,7 +3,6 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 
-
 import AppShell from "@/components/AppShell";
 import IngredientGroupEditor, {
   type Ingredient,
