@@ -10,17 +10,13 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**" },
     ],
   },
-  async rewrites() {
-    // BACKEND_URL must be a valid base URL without a trailing slash,
-    // e.g. "http://backend:8000" (set in docker-compose.yml).
-    const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${backendUrl}/api/:path*`,
-      },
-    ];
-  },
+  // NOTE: Do NOT add rewrites for /api/* here.
+  // next.config.ts rewrites are compiled at build time, so BACKEND_URL would
+  // be baked in as the build-time value (defaulting to localhost:8000) rather
+  // than the runtime docker-compose value (http://backend:8000).
+  // Additionally, default rewrites take precedence over dynamic catch-all route
+  // handlers in Next.js routing, which would bypass app/api/[...path]/route.ts.
+  // All /api/* requests are proxied by app/api/[...path]/route.ts at runtime.
 };
 
 export default nextConfig;
