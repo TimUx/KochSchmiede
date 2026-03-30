@@ -26,7 +26,7 @@ export default function Logo() {
       .catch(() => {});
   }, []);
 
-  if (!mounted) return <div className="h-8 w-12" />;
+  if (!mounted) return <div className="h-12 w-16" />;
 
   const isDark = resolvedTheme === "dark";
   const src = isDark
@@ -37,9 +37,9 @@ export default function Logo() {
     <Image
       src={src}
       alt="KochSchmiede"
-      width={120}
-      height={80}
-      className="h-8 w-auto"
+      width={180}
+      height={120}
+      className="h-12 w-auto"
       priority
       unoptimized={src.startsWith("/api/uploads/")}
     />
