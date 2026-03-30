@@ -6,15 +6,16 @@ import Link from "next/link";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
-import { Home, Book, PlusCircle, Download, Settings, LogIn, LogOut } from "lucide-react";
+import { navItems } from "./navConfig";
+import { LogIn, LogOut } from "lucide-react";
 
-const navItems = [
-  { href: "/", icon: Home, label: "Home" },
-  { href: "/recipes", icon: Book, label: "Rezepte" },
-  { href: "/recipes/new", icon: PlusCircle, label: "Neues Rezept" },
-  { href: "/import", icon: Download, label: "Import" },
-  { href: "/settings", icon: Settings, label: "Einstellungen" },
-];
+const sidebarLabels: Record<string, string> = {
+  "/": "Home",
+  "/recipes": "Rezepte",
+  "/recipes/new": "Neues Rezept",
+  "/import": "Import",
+  "/settings": "Einstellungen",
+};
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -45,7 +46,8 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map(({ href, icon: Icon, label }) => {
+        {navItems.map(({ href, icon: Icon }) => {
+          const label = sidebarLabels[href] ?? href;
           const active =
             pathname === href || (href !== "/" && pathname.startsWith(href));
           return (

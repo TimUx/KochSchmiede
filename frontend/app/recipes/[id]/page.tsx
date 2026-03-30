@@ -124,6 +124,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
           </div>
         </main>
       ) : (
+      <>
       <main className="max-w-2xl mx-auto pb-24 lg:pb-8">
         {recipe.image_url ? (
           <div className="relative w-full h-56 print:hidden">
@@ -311,14 +312,14 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
           )}
         </div>
       </main>
-      )}
-
       <ShareDialog
         recipeId={id}
-        recipeTitle={recipe?.title ?? ""}
+        recipeTitle={recipe.title}
         open={shareOpen}
         onClose={() => setShareOpen(false)}
       />
+      </>
+      )}
     </AppShell>
   );
 }
