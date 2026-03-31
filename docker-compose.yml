@@ -13,6 +13,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - kochschmiede
 
   backend:
     build:
@@ -21,7 +23,7 @@ services:
     environment:
       DATABASE_URL: postgresql://kochschmiede:${POSTGRES_PASSWORD:-secret}@postgres:5432/kochschmiede
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env file}
-      CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000","http://${DOMAIN:-localhost}"]'
+      CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000","http://${DOMAIN:-localhost}","http://${DOMAIN:-localhost}:${PORT:-3000}"]'
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,6 +37,8 @@ services:
       - "8000:8000"
     volumes:
       - uploads_data:/app/uploads
+    networks:
+      - kochschmiede
 
   frontend:
     build:
@@ -47,7 +51,13 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    networks:
+      - kochschmiede
 
 volumes:
   postgres_data:
   uploads_data:
+
+networks:
+  kochschmiede:
+    driver: bridge
