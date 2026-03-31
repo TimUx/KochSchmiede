@@ -1,11 +1,15 @@
 import io
+import logging
 import re
+import uuid
 from pathlib import Path
 from typing import Optional
 
 from PIL import Image
 
 from app.schemas import ImportIngredientGroup, ImportResult
+
+logger = logging.getLogger(__name__)
 
 try:
     import pytesseract
@@ -20,6 +24,8 @@ try:
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
+
+_IMPORT_UPLOAD_DIR = Path("/app/uploads/imported")
 
 
 def _clean_text(text: str) -> str:
@@ -64,30 +70,61 @@ def _parse_ocr_text(text: str) -> ImportResult:
     )
 
     # Boilerplate lines common in printed/exported recipe PDFs.
+    # "gesamtzeit" has no trailing \b so it also matches "Gesamtzeitca." (PDF
+    # formatting where no space appears between the keyword and "ca.").
     noise_re = re.compile(
         r"^(?:chefkoch|rezept\s+online\b|aufrufen\b|rezept\s+von\b|schwierigkeitsgrad\b"
-        r"|gesamtzeit\b|portionsgröße\b|kalorien\b|nährwert|foto[:\s]).*$",
+        r"|gesamtzeit|portionsgröße\b|kalorien\b|nährwert|foto[:\s]).*$",
         re.IGNORECASE,
     )
 
     # Timing patterns.
-    # arbeitszeit_re: "Arbeitszeit ca. 35 Minuten", "Arbeitszeit: 35 min"
-    # kochzeit_re: "Koch-/Backzeit ca. 20 Minuten", "Kochzeit: 15 min"
-    # Requiring *zeit* in the matched word prevents false positives from step
-    # instructions like "im Backofen ca. 20 Minuten backen".
+    # Use [\s:]* (zero-or-more) instead of [\s:]+ so that PDFs where the
+    # keyword is immediately followed by "ca." without a space are also
+    # matched, e.g. "Arbeitszeitca. 35 Minuten" or "Koch-/Backzeitca. 20 Min".
     arbeitszeit_re = re.compile(
-        r"\barbeitszeit\b[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE
+        r"\barbeitszeit[\s:]*(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE
     )
     kochzeit_re = re.compile(
-        r"\b(?:koch|back)[-/\w]*zeit\b[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE
+        r"\b(?:koch|back)[-/\w]*zeit[\s:]*(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE
     )
+
+    # Patterns for standalone timing-keyword lines whose value appears on the
+    # *next* line, e.g. "Arbeitszeit\nca. 35 Minuten".
+    arbeitszeit_keyword_re = re.compile(r"^arbeitszeit\s*$", re.IGNORECASE)
+    kochzeit_keyword_re = re.compile(r"^(?:koch|back)[-/\w]*zeit\s*$", re.IGNORECASE)
+    time_value_re = re.compile(r"(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE)
 
     in_ingredients = False
     in_steps = False
     current_group: Optional[dict] = None  # {"name": str, "ingredients": list[str]}
+    # Lines within the current step paragraph; flushed as one step on blank line.
+    step_buffer: list[str] = []
+    # Flags set when a timing keyword appears alone; the value is expected on
+    # the very next non-blank line.
+    pending_prep_time = False
+    pending_cook_time = False
 
     ingredients_headers = {"zutaten", "ingredients", "zutat", "ingredient"}
     steps_headers = {"zubereitung", "anleitung", "instructions", "steps", "preparation", "method"}
+
+    def _flush_step_buffer() -> None:
+        nonlocal step_buffer
+        if not step_buffer:
+            return
+        cleaned_parts = []
+        for buf_line in step_buffer:
+            # Skip lines that are just standalone step-number markers ("1", "2", …)
+            if re.match(r"^\d+$", buf_line):
+                continue
+            # Strip standard numbered-step prefix ("1.", "1)", "1:", "1 ")
+            cleaned = re.sub(r"^\d+[\.\):\s]+", "", buf_line).strip()
+            if cleaned:
+                cleaned_parts.append(cleaned)
+        combined = " ".join(cleaned_parts).strip()
+        if combined:
+            steps.append(combined)
+        step_buffer = []
 
     def _flush_current_group() -> None:
         nonlocal current_group
@@ -100,8 +137,30 @@ def _parse_ocr_text(text: str) -> ImportResult:
             )
             current_group = None
 
-    for line in lines:
+    for line in raw_lines:
+        # ── Blank line: paragraph separator ──────────────────────────────────
+        if not line:
+            if in_steps:
+                _flush_step_buffer()
+            pending_prep_time = False
+            pending_cook_time = False
+            continue
+
         lower = line.lower().rstrip(":").strip()
+
+        # ── Consume the value line that follows a standalone timing keyword ───
+        if pending_prep_time:
+            pending_prep_time = False
+            m = time_value_re.search(line)
+            if m and prep_time is None:
+                prep_time = int(m.group(1))
+                continue
+        if pending_cook_time:
+            pending_cook_time = False
+            m = time_value_re.search(line)
+            if m and cook_time is None:
+                cook_time = int(m.group(1))
+                continue
 
         # ── Skip known noise / boilerplate ───────────────────────────────────
         if noise_re.match(line):
@@ -119,10 +178,19 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 cook_time = int(m.group(1))
                 continue
 
+        # ── Standalone timing keyword (value on the next line) ────────────────
+        if prep_time is None and arbeitszeit_keyword_re.match(line):
+            pending_prep_time = True
+            continue
+        if cook_time is None and kochzeit_keyword_re.match(line):
+            pending_cook_time = True
+            continue
+
         # ── Ingredient group headers (checked BEFORE the generic section header
         #    so "Zutaten für den Teig:" is treated as a named group, not merely
         #    as a second "Zutaten" section restart) ────────────────────────────
         if group_header_re.match(line):
+            _flush_step_buffer()
             in_ingredients = True
             in_steps = False
             _flush_current_group()
@@ -141,6 +209,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 )
                 if m:
                     servings = int(m.group(1))
+            _flush_step_buffer()
             in_ingredients = True
             in_steps = False
             continue
@@ -148,6 +217,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
         # ── Section: Steps / Preparation ─────────────────────────────────────
         if lower in steps_headers:
             _flush_current_group()
+            _flush_step_buffer()
             in_steps = True
             in_ingredients = False
             continue
@@ -159,12 +229,34 @@ def _parse_ocr_text(text: str) -> ImportResult:
 
         # ── Ingredient section content ────────────────────────────────────────
         if in_ingredients:
-            if step_re.match(line) or len(line) > 80:
-                # Long / numbered line → transition to steps.
+            # Short lines starting with a lowercase letter are recipe taglines
+            # or descriptions that slipped into the ingredient section (common
+            # in single-page PDFs with multi-column layouts) – discard them.
+            # German ingredient names always start with an uppercase letter.
+            if line and line[0].islower() and len(line) <= 50:
+                continue
+
+            # If the recipe title reappears inside the ingredient section (a
+            # common PDF layout artefact) skip it rather than adding it as an
+            # ingredient.
+            if title and line.lower() == title.lower():
+                continue
+
+            # Transition to steps when:
+            # - A numbered step line (e.g. "1. Mix flour")
+            # - A longer prose line (> 50 chars) typical of step instructions
+            # - A sentence-continuation line that starts with a lowercase letter
+            #   (len > 50; shorter lowercase lines are already discarded above)
+            is_step_transition = (
+                step_re.match(line)
+                or len(line) > 50
+                or (line and line[0].islower())
+            )
+            if is_step_transition:
+                # Transition to steps; fall through to the steps block below.
                 _flush_current_group()
                 in_steps = True
                 in_ingredients = False
-                # Fall through so this line is also handled by the steps block.
             else:
                 if current_group is not None:
                     current_group["ingredients"].append(line)
@@ -174,9 +266,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
 
         # ── Steps content ─────────────────────────────────────────────────────
         if in_steps:
-            cleaned = re.sub(r"^\d+[\.\):\s]+", "", line).strip()
-            if cleaned:
-                steps.append(cleaned)
+            step_buffer.append(line)
             continue
 
         # ── Fallback heuristics (unclassified lines) ──────────────────────────
@@ -185,7 +275,8 @@ def _parse_ocr_text(text: str) -> ImportResult:
         elif step_re.match(line) or len(line) > 50:
             steps.append(re.sub(r"^\d+[\.\):\s]+", "", line).strip())
 
-    # Save last open group
+    # Flush any remaining step paragraph and last open ingredient group.
+    _flush_step_buffer()
     _flush_current_group()
 
     return ImportResult(
@@ -197,6 +288,55 @@ def _parse_ocr_text(text: str) -> ImportResult:
         cook_time=cook_time,
         servings=servings,
     )
+
+
+def _extract_best_pdf_image(doc: "fitz.Document") -> Optional[bytes]:  # type: ignore[name-defined]
+    """Return raw bytes of the largest embedded image in the PDF document.
+
+    Tiny images (icons, decorations) are skipped.  Returns ``None`` when no
+    suitable image is found.
+    """
+    best_area = 0
+    best_bytes: Optional[bytes] = None
+
+    for page in doc:
+        for img_info in page.get_images(full=True):
+            xref = img_info[0]
+            width = img_info[2]
+            height = img_info[3]
+            area = width * height
+            if area < 100 * 100:  # skip very small images (icons, separators)
+                continue
+            try:
+                base = doc.extract_image(xref)
+                raw = base["image"]
+                if area > best_area:
+                    best_area = area
+                    best_bytes = raw
+            except Exception:
+                logger.debug("Could not extract image xref=%d from PDF", xref, exc_info=True)
+                continue
+
+    return best_bytes
+
+
+def _save_imported_image(img_bytes: bytes) -> Optional[str]:
+    """Save raw image bytes as a JPEG in the uploads directory.
+
+    Returns the URL path (``/api/uploads/imported/<name>.jpg``) or ``None``
+    if saving fails.
+    """
+    try:
+        _IMPORT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        img = Image.open(io.BytesIO(img_bytes))
+        img = img.convert("RGB")
+        filename = f"{uuid.uuid4().hex}.jpg"
+        dest = _IMPORT_UPLOAD_DIR / filename
+        img.save(dest, "JPEG", quality=85)
+        return f"/api/uploads/imported/{filename}"
+    except Exception:
+        logger.warning("Failed to save imported PDF image", exc_info=True)
+        return None
 
 
 def ocr_image(
@@ -244,7 +384,13 @@ def ocr_pdf(pdf_bytes: bytes, handwriting: bool = False) -> ImportResult:
         for page in doc:
             full_text += page.get_text()
         if full_text.strip():
-            return _parse_ocr_text(full_text)
+            result = _parse_ocr_text(full_text)
+            # Try to extract the food photo embedded in the PDF.
+            if result.image_url is None:
+                img_bytes = _extract_best_pdf_image(doc)
+                if img_bytes:
+                    result.image_url = _save_imported_image(img_bytes)
+            return result
         # No text layer – render every page and OCR
         if OCR_AVAILABLE:
             pages_text: list[str] = []
@@ -302,6 +448,7 @@ def merge_import_results(results: list[ImportResult]) -> ImportResult:
     ) or "Importiertes Rezept"
 
     # Use the first non-None value found across all pages for metadata
+    image_url = next((r.image_url for r in results if r.image_url), None)
     prep_time = next((r.prep_time for r in results if r.prep_time is not None), None)
     cook_time = next((r.cook_time for r in results if r.cook_time is not None), None)
     servings = next((r.servings for r in results if r.servings is not None), None)
@@ -329,6 +476,7 @@ def merge_import_results(results: list[ImportResult]) -> ImportResult:
 
     return ImportResult(
         title=title,
+        image_url=image_url,
         ingredients=ingredients[:50],
         ingredient_groups=ingredient_groups,
         steps=steps[:30],
