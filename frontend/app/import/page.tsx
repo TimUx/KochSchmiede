@@ -42,6 +42,89 @@ type ImportResult = {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
+/**
+ * Ordered list of units recognised when parsing raw ingredient strings.
+ * Longer/more-specific entries must come before shorter ones to avoid
+ * partial matches (e.g. "Zehe/n" before "Zehe", "kg" before "g").
+ */
+const KNOWN_UNITS = [
+  "Scheibe(n)", "Scheibe/n", "Scheiben", "Scheibe",
+  "Stangen", "Stange",
+  "Blätter", "Blatt",
+  "Flaschen", "Flasche",
+  "Prisen", "Prise",
+  "Tassen", "Tasse",
+  "Schalen", "Schale",
+  "Dosen", "Dose",
+  "Zweige", "Zweig",
+  "Zehe/n", "Zehen", "Zehe",
+  "Bunde", "Bund",
+  "Handvoll",
+  "Tropfen",
+  "Becher",
+  "Schuss",
+  "Stücke", "Stück", "Stk.",
+  "Packung", "Pck.", "Pck", "Pkg.",
+  "Gläser", "Glas",
+  "Msp.",
+  "cups", "cup",
+  "tbsp", "tsp",
+  "bunch",
+  "EL", "TL",
+  "kg", "ml", "cl", "dl",
+  "oz", "lb",
+  "cm",
+  "g", "l",
+];
+
+/**
+ * Parse a raw ingredient string like "500 g Magerquark" into its
+ * constituent parts: numeric amount, unit, and ingredient name.
+ *
+ * Handles:
+ *  - integers and decimals:  "500", "1.5", "1,5"
+ *  - written fractions:      "1/2", "3/4"
+ *  - Unicode fractions:      "½", "¼", "¾", "⅓", "⅔", …  (U+00BC–U+00BE, U+2150–U+215E)
+ *  - mixed amounts:          "1½", "1 ½"
+ *  - "n. B." / "n.B."       (nach Bedarf / to taste)
+ */
+function parseIngredient(raw: string): { amount: string; unit: string; name: string } {
+  const trimmed = raw.trim();
+
+  // Unicode fraction characters (¼ ½ ¾ ⅓ ⅔ ⅛ ⅜ ⅝ ⅞ …)
+  const FRAC = "\u00BC-\u00BE\u2150-\u215E";
+
+  // Amount token: integer/decimal, optional written fraction (1/2), optional
+  // unicode fraction suffix (1½), standalone unicode fraction, or "n. B."
+  const AMT =
+    `(?:\\d+[,.]?\\d*(?:\\s*/\\s*\\d+)?(?:\\s*[${FRAC}])?` +  // 1, 1.5, 1/2, 1½
+    `|[${FRAC}]` +                                              // ½ alone
+    `|n\\.?\\s*[Bb]\\.)`;                                       // n. B.
+
+  // Build a regex alternation from the known-units list, escaping special chars.
+  const unitAlt = KNOWN_UNITS
+    .map((u) => u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
+  // Try: amount  unit  name
+  const withUnit = new RegExp(
+    `^(${AMT})\\s+(${unitAlt})\\.?\\s+(.+)$`,
+    "iu",
+  );
+  // Try: amount  name  (no recognisable unit)
+  const withAmountOnly = new RegExp(`^(${AMT})\\s+(.+)$`, "iu");
+
+  let m = trimmed.match(withUnit);
+  if (m) {
+    return { amount: m[1].replace(",", ".").trim(), unit: m[2].trim(), name: m[3].trim() };
+  }
+  m = trimmed.match(withAmountOnly);
+  if (m) {
+    return { amount: m[1].replace(",", ".").trim(), unit: "", name: m[2].trim() };
+  }
+  return { amount: "", unit: "", name: trimmed };
+}
+
 function apiFetch(path: string, options: RequestInit = {}) {
   const token = typeof window !== "undefined" ? localStorage.getItem("ks_token") : null;
   const isFormData = options.body instanceof FormData;
@@ -206,23 +289,19 @@ export default function ImportPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      // Map flat ingredients to structured format
-      const ingredients = result.ingredients.map((raw, idx) => ({
-        amount: null,
-        unit: null,
-        name: raw,
-        position: idx,
-      }));
-      // Map ingredient groups
+      // Map flat ingredients to structured format, parsing amount/unit/name
+      const ingredients = result.ingredients.map((raw, idx) => {
+        const { amount, unit, name } = parseIngredient(raw);
+        return { amount: amount || null, unit: unit || null, name, position: idx };
+      });
+      // Map ingredient groups, also parsing each ingredient string
       const ingredient_groups = result.ingredient_groups.map((g, gi) => ({
         name: g.name,
         position: gi,
-        ingredients: g.ingredients.map((raw, idx) => ({
-          amount: null,
-          unit: null,
-          name: raw,
-          position: idx,
-        })),
+        ingredients: g.ingredients.map((raw, idx) => {
+          const { amount, unit, name } = parseIngredient(raw);
+          return { amount: amount || null, unit: unit || null, name, position: idx };
+        }),
       }));
       // Map steps
       const steps = result.steps.map((instruction, idx) => ({
