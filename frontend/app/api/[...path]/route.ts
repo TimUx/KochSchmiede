@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_URL =
-  process.env.BACKEND_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  "http://localhost:8000";
+// BACKEND_URL must be a plain (non-NEXT_PUBLIC_) environment variable so that
+// it is read from the container environment at runtime.  NEXT_PUBLIC_ variables
+// are inlined at build time by the Next.js compiler, so a NEXT_PUBLIC_ var that
+// is not set during `next build` will always resolve to `undefined` at runtime,
+// regardless of what the container sets.
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 type Context = { params: Promise<{ path: string[] }> };
 
