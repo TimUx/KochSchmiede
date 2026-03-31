@@ -27,13 +27,16 @@ def _clean_text(text: str) -> str:
 
 
 def _parse_ocr_text(text: str) -> ImportResult:
-    """Parse raw OCR text into structured recipe data using heuristics."""
+    """Parse raw OCR / PDF text into structured recipe data using heuristics."""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     title: Optional[str] = None
     ingredients: list[str] = []
     ingredient_groups: list[ImportIngredientGroup] = []
     steps: list[str] = []
+    prep_time: Optional[int] = None
+    cook_time: Optional[int] = None
+    servings: Optional[int] = None
 
     amount_re = re.compile(
         r"(\d+[\.,]?\d*\s*(g|kg|ml|l|cl|tl|el|tbsp|tsp|cup|oz|lb|prise|stk|stück)?)",
@@ -48,6 +51,19 @@ def _parse_ocr_text(text: str) -> ImportResult:
         re.IGNORECASE,
     )
 
+    # Boilerplate lines common in printed/exported recipe PDFs (logos, navigation, attribution)
+    noise_re = re.compile(
+        r"^(?:chefkoch|rezept\s+online\b|aufrufen\b|rezept\s+von\b|schwierigkeitsgrad\b"
+        r"|gesamtzeit\b|portionsgröße\b|kalorien\b|nährwert).*$",
+        re.IGNORECASE,
+    )
+
+    # Timing patterns: "Arbeitszeit ca. 35 Minuten", "Koch-/Backzeit  ca. 20 Minuten"
+    arbeitszeit_re = re.compile(r"\barbeitszeit\b[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE)
+    kochzeit_re = re.compile(
+        r"\b(?:koch|back)[-/\w]*[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE
+    )
+
     in_ingredients = False
     in_steps = False
     current_group: Optional[dict] = None  # {"name": str, "ingredients": list[str]}
@@ -55,57 +71,78 @@ def _parse_ocr_text(text: str) -> ImportResult:
     ingredients_headers = {"zutaten", "ingredients", "zutat", "ingredient"}
     steps_headers = {"zubereitung", "anleitung", "instructions", "steps", "preparation", "method"}
 
+    def _flush_current_group() -> None:
+        nonlocal current_group
+        if current_group is not None:
+            ingredient_groups.append(
+                ImportIngredientGroup(
+                    name=current_group["name"],
+                    ingredients=current_group["ingredients"][:30],
+                )
+            )
+            current_group = None
+
     for line in lines:
         lower = line.lower().rstrip(":").strip()
 
-        if lower in ingredients_headers:
+        # ── Skip known noise / boilerplate ───────────────────────────────────
+        if noise_re.match(line):
+            continue
+
+        # ── Extract timing metadata (valid anywhere in the document) ─────────
+        if prep_time is None:
+            m = arbeitszeit_re.search(line)
+            if m:
+                prep_time = int(m.group(1))
+                continue
+        if cook_time is None:
+            m = kochzeit_re.search(line)
+            if m:
+                cook_time = int(m.group(1))
+                continue
+
+        # ── Section: Ingredients ─────────────────────────────────────────────
+        # "Zutaten für N Portionen" starts the ingredients section AND carries
+        # servings information; plain "Zutaten" also works.
+        if lower in ingredients_headers or lower.startswith("zutaten"):
+            if servings is None:
+                m = re.search(
+                    r"(?:zutaten\s+für|für)\s+(\d+)\s*(?:portion|person|stück|serving)",
+                    line,
+                    re.IGNORECASE,
+                )
+                if m:
+                    servings = int(m.group(1))
             in_ingredients = True
             in_steps = False
-            # Don't reset current_group – might be a sub-header follows
             continue
+
+        # ── Section: Steps / Preparation ─────────────────────────────────────
         if lower in steps_headers:
-            # Save any open ingredient group
-            if current_group is not None:
-                ingredient_groups.append(
-                    ImportIngredientGroup(
-                        name=current_group["name"],
-                        ingredients=current_group["ingredients"][:30],
-                    )
-                )
-                current_group = None
+            _flush_current_group()
             in_steps = True
             in_ingredients = False
             continue
 
-        if not title and len(line) > 3 and not amount_re.search(line):
+        # ── Title: first meaningful non-boilerplate, non-amount line ─────────
+        if not title and len(line) > 3 and not amount_re.search(line) and not line.isupper():
             title = line
             continue
 
+        # ── Ingredient section content ────────────────────────────────────────
         if in_ingredients:
-            # Detect ingredient group sub-headers
+            # Detect ingredient group sub-headers ("Für den Teig:", "Füllung:", …)
             if group_header_re.match(line):
-                if current_group is not None:
-                    ingredient_groups.append(
-                        ImportIngredientGroup(
-                            name=current_group["name"],
-                            ingredients=current_group["ingredients"][:30],
-                        )
-                    )
+                _flush_current_group()
                 current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
                 continue
 
             if step_re.match(line) or len(line) > 80:
                 # Transition to steps
-                if current_group is not None:
-                    ingredient_groups.append(
-                        ImportIngredientGroup(
-                            name=current_group["name"],
-                            ingredients=current_group["ingredients"][:30],
-                        )
-                    )
-                    current_group = None
+                _flush_current_group()
                 in_steps = True
                 in_ingredients = False
+                # Fall through so this line is also handled by the steps block below.
             else:
                 if current_group is not None:
                     current_group["ingredients"].append(line)
@@ -113,32 +150,38 @@ def _parse_ocr_text(text: str) -> ImportResult:
                     ingredients.append(line)
                 continue
 
+        # ── Group header encountered before an explicit "Zutaten" header ─────
+        elif not in_steps and group_header_re.match(line):
+            # Implicitly start the ingredient section with this group.
+            in_ingredients = True
+            _flush_current_group()
+            current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
+            continue
+
+        # ── Steps content ─────────────────────────────────────────────────────
         if in_steps:
             cleaned = re.sub(r"^\d+[\.\):\s]+", "", line).strip()
             if cleaned:
                 steps.append(cleaned)
             continue
 
-        # fallback heuristics
+        # ── Fallback heuristics (unclassified lines) ──────────────────────────
         if amount_re.search(line) and len(line) < 80:
             ingredients.append(line)
         elif step_re.match(line) or len(line) > 50:
             steps.append(re.sub(r"^\d+[\.\):\s]+", "", line).strip())
 
     # Save last open group
-    if current_group is not None:
-        ingredient_groups.append(
-            ImportIngredientGroup(
-                name=current_group["name"],
-                ingredients=current_group["ingredients"][:30],
-            )
-        )
+    _flush_current_group()
 
     return ImportResult(
         title=title or "Importiertes Rezept",
         ingredients=ingredients[:30],
         ingredient_groups=ingredient_groups,
         steps=steps[:20],
+        prep_time=prep_time,
+        cook_time=cook_time,
+        servings=servings,
     )
 
 
