@@ -84,7 +84,7 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
 # ─── Recipe CRUD ──────────────────────────────────────────────────────────────
 
 
-@router.get("/", response_model=list[RecipeOut])
+@router.get("", response_model=list[RecipeOut])
 def list_recipes(
     q: Optional[str] = Query(None, description="Search query"),
     tag: Optional[str] = Query(None),
@@ -111,7 +111,7 @@ def list_recipes(
     return [_recipe_to_out(r) for r in recipes]
 
 
-@router.post("/", response_model=RecipeOut, status_code=201)
+@router.post("", response_model=RecipeOut, status_code=201)
 def create_recipe(
     recipe_in: RecipeCreate,
     db: Session = Depends(get_db),
