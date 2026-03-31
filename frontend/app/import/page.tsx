@@ -224,16 +224,53 @@ export default function ImportPage() {
 
   const startCamera = async () => {
     setCameraError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError(
+        "Kamerazugriff wird von diesem Browser nicht unterstützt. Bitte stelle sicher, dass die Seite über HTTPS aufgerufen wird.",
+      );
+      return;
+    }
+
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCameraActive(true);
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "OverconstrainedError") {
+        // Rear-camera constraint not satisfiable – fall back to any available camera
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch (fallbackErr) {
+          err = fallbackErr;
+        }
       }
-    } catch {
-      setCameraError("Kamerazugriff nicht möglich. Bitte Berechtigungen prüfen.");
+      if (!stream) {
+        if (err instanceof DOMException) {
+          if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+            setCameraError(
+              "Kamerazugriff verweigert. Bitte erlaube den Kamerazugriff in den Browser-Einstellungen.",
+            );
+          } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+            setCameraError(
+              "Keine Kamera gefunden. Bitte stelle sicher, dass eine Kamera angeschlossen oder verfügbar ist.",
+            );
+          } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+            setCameraError(
+              "Kamera wird bereits von einer anderen Anwendung verwendet. Bitte schließe andere Apps und versuche es erneut.",
+            );
+          } else {
+            setCameraError("Kamerazugriff nicht möglich. Bitte Berechtigungen prüfen.");
+          }
+        } else {
+          setCameraError("Kamerazugriff nicht möglich. Bitte Berechtigungen prüfen.");
+        }
+        return;
+      }
+    }
+
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+      setCameraActive(true);
     }
   };
 
