@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
+import WakeLockToggle from "./WakeLockToggle";
 import { LogIn, LogOut } from "lucide-react";
 
 export default function Navbar() {
@@ -34,6 +35,7 @@ export default function Navbar() {
       <Logo />
       <div className="flex items-center gap-2">
         <LanguageSwitcher />
+        <WakeLockToggle />
         <ThemeToggle />
         {loggedIn ? (
           <button

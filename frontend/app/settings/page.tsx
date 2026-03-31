@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import ThemeToggle from "@/components/ThemeToggle";
+import WakeLockToggle from "@/components/WakeLockToggle";
 import Link from "next/link";
 import {
   User,
@@ -20,6 +21,7 @@ import {
   Loader2,
   AlertCircle,
   X,
+  MonitorCheck,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -186,6 +188,20 @@ export default function SettingsPage() {
                   <div className="text-xs text-zinc-500 dark:text-zinc-400">Hell / Dunkel</div>
                 </div>
                 <ThemeToggle />
+              </div>
+
+              {/* Wake lock */}
+              <div className="flex items-center gap-4 px-4 py-3.5 border-b border-zinc-100 dark:border-zinc-800">
+                <div className="w-9 h-9 rounded-xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
+                  <MonitorCheck size={18} className="text-amber-500" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-sm">Display wach halten</div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Verhindert, dass sich das Display ausschaltet
+                  </div>
+                </div>
+                <WakeLockToggle />
               </div>
 
               {/* Language */}
