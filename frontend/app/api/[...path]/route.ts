@@ -57,7 +57,20 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
   }
 
   try {
-    const backendRes = await fetch(url, init);
+    // Use an explicit timeout so slow AI inference (local LLM on CPU-only
+    // hardware) has enough time to finish.  The value intentionally exceeds
+    // the backend AI_TIMEOUT default (300 s) to give the backend enough room
+    // to complete its own timeout handling and still return a structured error.
+    const controller = new AbortController();
+    const timeoutMs = 600_000; // 10 minutes
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let backendRes: Response;
+    try {
+      backendRes = await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const responseHeaders = new Headers();
     // Copy only non-hop-by-hop response headers.
@@ -73,7 +86,12 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
       headers: responseHeaders,
     });
   } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "AbortError";
     const message = err instanceof Error ? err.message : String(err);
+    if (isTimeout) {
+      console.error(`[proxy] Request to ${url} timed out after 10 minutes`);
+      return NextResponse.json({ detail: "Request timed out" }, { status: 504 });
+    }
     console.error(`[proxy] Failed to reach backend at ${url}: ${message}`);
     return NextResponse.json(
       { detail: "Backend unreachable" },

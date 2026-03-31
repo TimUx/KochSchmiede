@@ -153,7 +153,7 @@ def _call_chat_completions(messages: list[dict]) -> Optional[ImportResult]:
                 "max_tokens": 2048,
             },
             headers=headers,
-            timeout=120,
+            timeout=settings.AI_TIMEOUT,
         )
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
@@ -181,7 +181,7 @@ def _parse_with_ollama_generate(text: str) -> Optional[ImportResult]:
                 "stream": False,
                 "format": "json",
             },
-            timeout=120,
+            timeout=settings.AI_TIMEOUT,
         )
         resp.raise_for_status()
         raw = resp.json()
@@ -195,28 +195,34 @@ def _parse_with_ollama_generate(text: str) -> Optional[ImportResult]:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-def parse_with_ai(text: str) -> Optional[ImportResult]:
+def parse_with_ai(text: str, skip_chat_completions: bool = False) -> Optional[ImportResult]:
     """Parse raw recipe text with the best available free AI backend.
 
     Tries the local LLM server (Ollama /v1 or LM Studio) first; falls
     back to Ollama's native ``/api/generate`` endpoint if configured.
     Returns ``None`` when no AI backend is available so callers fall back
     to the heuristic parser.
+
+    Set *skip_chat_completions* to ``True`` when the chat-completions
+    endpoint is already known to be failing for the current request (e.g.
+    it timed out for the vision step) so the fallback is reached immediately
+    without another long wait.
     """
     if not text.strip():
         return None
 
     # 1. Local LLM via chat completions (Ollama /v1, LM Studio, …)
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
-        },
-    ]
-    result = _call_chat_completions(messages)
-    if result:
-        return result
+    if not skip_chat_completions:
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
+            },
+        ]
+        result = _call_chat_completions(messages)
+        if result:
+            return result
 
     # 2. Ollama /api/generate (legacy)
     if _ollama_enabled():

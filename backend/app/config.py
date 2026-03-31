@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     AI_ENDPOINT: str = ""
     AI_MODEL: str = "llama3.2"
 
+    # ── AI request timeout ────────────────────────────────────────────────────
+    # Seconds to wait for a single LLM inference call.  Increase on slow
+    # CPU-only hardware – local models can take several minutes per request.
+    AI_TIMEOUT: int = 300
+
     @field_validator("SECRET_KEY")
     @classmethod
     def secret_key_must_be_set(cls, v: str) -> str:
