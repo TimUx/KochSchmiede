@@ -25,6 +25,7 @@ function RecipesContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [showFilter, setShowFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") ?? "");
 
   useEffect(() => {
@@ -83,7 +84,15 @@ function RecipesContent() {
       <main className="w-full px-4 py-6 pb-24 lg:pb-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold">Alle Rezepte</h1>
-          <button className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+          <button
+            onClick={() => setShowFilter((v) => !v)}
+            className={`p-2 rounded-xl border transition ${
+              showFilter || activeTag
+                ? "bg-amber-500 border-amber-500 text-white"
+                : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300"
+            }`}
+            aria-label="Filter anzeigen"
+          >
             <SlidersHorizontal size={18} />
           </button>
         </div>
@@ -103,8 +112,8 @@ function RecipesContent() {
           />
         </div>
 
-        {/* Category filter strip – only shown when there are tags */}
-        {allTags.length > 0 && (
+        {/* Category filter strip – shown when filter is toggled on and tags exist */}
+        {showFilter && allTags.length > 0 && (
           <div className="flex gap-2 mb-6 overflow-x-auto pb-1 scrollbar-hide">
             <button
               onClick={() => setActiveTag(null)}

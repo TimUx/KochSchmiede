@@ -35,6 +35,7 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
@@ -145,6 +146,20 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
     }
   }
 
+  async function handleDelete() {
+    if (!confirm("Rezept wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await apiFetch(`/api/recipes/${id}`, { method: "DELETE" });
+      router.push("/recipes");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Fehler beim Löschen");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const inputCls =
     "w-full px-4 py-3 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white text-sm";
 
@@ -160,14 +175,24 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
           <Link href={`/recipes/${id}`} className="flex items-center gap-1 text-zinc-500 text-sm">
             <ArrowLeft size={16} /> Zurück
           </Link>
-          <button
-            onClick={handleSave}
-            disabled={saving || !title.trim()}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-sm font-medium transition"
-          >
-            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            {saving ? "Speichern…" : "Speichern"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDelete}
+              disabled={deleting || saving}
+              className="flex items-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-sm font-medium transition"
+            >
+              {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              {deleting ? "Löschen…" : "Löschen"}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || deleting || !title.trim()}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-sm font-medium transition"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              {saving ? "Speichern…" : "Speichern"}
+            </button>
+          </div>
         </div>
 
         <h1 className="text-xl font-bold mb-6">Rezept bearbeiten</h1>
