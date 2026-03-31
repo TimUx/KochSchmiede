@@ -66,12 +66,16 @@ def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
     1. Extract raw text + embedded photo.
     2. If vision AI is available, render the first page as JPEG and send to
        vision model (best for complex layouts).
-    3. Otherwise try text AI on the extracted text.
+    3. Otherwise try text AI on the extracted text.  If vision AI was
+       attempted but failed (e.g. the chat-completions endpoint timed out),
+       skip that endpoint for the text step to avoid a second long wait and
+       go straight to the legacy /api/generate fallback.
     4. Fall back to the heuristic parser.
     """
     raw_text, image_url = extract_pdf_text_and_image(content, handwriting)
 
     result: ImportResult | None = None
+    chat_completions_failed = False
 
     # Step 1 – Vision AI on rendered first page (handles complex layouts best)
     if has_vision_ai():
@@ -80,10 +84,14 @@ def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
             result = parse_image_with_ai(page_img, mime_type="image/jpeg")
             if result:
                 logger.debug("PDF parsed via vision AI")
+            else:
+                # The chat-completions endpoint failed for vision; remember this
+                # so we don't repeat the same slow timeout for the text step.
+                chat_completions_failed = True
 
     # Step 2 – Text AI on extracted raw text
     if result is None and raw_text.strip():
-        result = parse_with_ai(raw_text)
+        result = parse_with_ai(raw_text, skip_chat_completions=chat_completions_failed)
         if result:
             logger.debug("PDF parsed via text AI")
 
@@ -112,22 +120,27 @@ def _parse_image(
     """Full parse pipeline for an image file.
 
     1. Vision AI – send image directly to vision model (skips OCR entirely).
-    2. Text AI – OCR the image first, then send text to LLM.
+    2. Text AI – OCR the image first, then send text to LLM.  If vision AI
+       was attempted but failed, skip the chat-completions endpoint and go
+       straight to the legacy /api/generate fallback.
     3. Heuristic fallback.
     """
     result: ImportResult | None = None
+    chat_completions_failed = False
 
     # Step 1 – Vision AI (no OCR needed)
     if has_vision_ai():
         result = parse_image_with_ai(content, mime_type=mime_type)
         if result:
             logger.debug("Image parsed via vision AI")
+        else:
+            chat_completions_failed = True
 
     # Step 2 – OCR + Text AI / heuristic
     if result is None:
         raw_text = extract_image_text(content, handwriting)
         if raw_text.strip():
-            result = parse_with_ai(raw_text)
+            result = parse_with_ai(raw_text, skip_chat_completions=chat_completions_failed)
             if result:
                 logger.debug("Image parsed via text AI after OCR")
         if result is None:

@@ -30,6 +30,8 @@ services:
       LLM_MODEL: ${LLM_MODEL:-llama3.2}
       AI_ENDPOINT: ${AI_ENDPOINT:-}
       AI_MODEL: ${AI_MODEL:-llama3.2}
+      # Seconds to wait per LLM call; increase on slow CPU-only hardware
+      AI_TIMEOUT: ${AI_TIMEOUT:-300}
     depends_on:
       postgres:
         condition: service_healthy
