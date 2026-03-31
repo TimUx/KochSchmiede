@@ -1,3 +1,21 @@
+"""Recipe import endpoints.
+
+Parsing priority for every file / camera import
+------------------------------------------------
+1. **Vision AI** – if a vision-capable local LLM is configured
+   (``LLM_BASE_URL`` pointing to a vision model such as
+   ``llama3.2-vision`` or ``llava``), the image / rendered PDF page is
+   sent directly to the model.  This handles any layout (tables, columns,
+   grids) with the highest accuracy.
+
+2. **Text AI** – the raw OCR / PDF text is sent to the local LLM
+   (``LLM_BASE_URL`` chat completions or legacy Ollama ``/api/generate``).
+   Falls back here when vision AI is unavailable or fails.
+
+3. **Heuristic parser** – the built-in regex-based parser that works without
+   any external service.  Always available as the last resort.
+"""
+
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -5,8 +23,18 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas import ImportResult
-from app.services.ai_parser import parse_with_ai
-from app.services.ocr import merge_import_results, ocr_image, ocr_pdf
+from app.services.ai_parser import (
+    has_vision_ai,
+    parse_image_with_ai,
+    parse_with_ai,
+)
+from app.services.ocr import (
+    extract_image_text,
+    extract_pdf_text_and_image,
+    merge_import_results,
+    parse_ocr_text,
+    render_pdf_first_page,
+)
 from app.services.scraper import scrape_url
 from app.services.settings import get_settings
 
@@ -32,6 +60,89 @@ def _is_image(file: UploadFile) -> bool:
     )
 
 
+def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
+    """Full parse pipeline for a PDF file.
+
+    1. Extract raw text + embedded photo.
+    2. If vision AI is available, render the first page as JPEG and send to
+       vision model (best for complex layouts).
+    3. Otherwise try text AI on the extracted text.
+    4. Fall back to the heuristic parser.
+    """
+    raw_text, image_url = extract_pdf_text_and_image(content, handwriting)
+
+    result: ImportResult | None = None
+
+    # Step 1 – Vision AI on rendered first page (handles complex layouts best)
+    if has_vision_ai():
+        page_img = render_pdf_first_page(content)
+        if page_img:
+            result = parse_image_with_ai(page_img, mime_type="image/jpeg")
+            if result:
+                logger.debug("PDF parsed via vision AI")
+
+    # Step 2 – Text AI on extracted raw text
+    if result is None and raw_text.strip():
+        result = parse_with_ai(raw_text)
+        if result:
+            logger.debug("PDF parsed via text AI")
+
+    # Step 3 – Heuristic fallback
+    if result is None:
+        if raw_text.strip():
+            result = parse_ocr_text(raw_text)
+            logger.debug("PDF parsed via heuristic parser")
+        else:
+            result = ImportResult(
+                title="PDF Import nicht vollständig verfügbar",
+                ingredients=[],
+                steps=[],
+            )
+
+    # Restore embedded photo extracted by PyMuPDF
+    if image_url and not result.image_url:
+        result.image_url = image_url
+
+    return result
+
+
+def _parse_image(
+    content: bytes, mime_type: str, handwriting: bool
+) -> ImportResult:
+    """Full parse pipeline for an image file.
+
+    1. Vision AI – send image directly to vision model (skips OCR entirely).
+    2. Text AI – OCR the image first, then send text to LLM.
+    3. Heuristic fallback.
+    """
+    result: ImportResult | None = None
+
+    # Step 1 – Vision AI (no OCR needed)
+    if has_vision_ai():
+        result = parse_image_with_ai(content, mime_type=mime_type)
+        if result:
+            logger.debug("Image parsed via vision AI")
+
+    # Step 2 – OCR + Text AI / heuristic
+    if result is None:
+        raw_text = extract_image_text(content, handwriting)
+        if raw_text.strip():
+            result = parse_with_ai(raw_text)
+            if result:
+                logger.debug("Image parsed via text AI after OCR")
+        if result is None:
+            if raw_text.strip():
+                result = parse_ocr_text(raw_text)
+            else:
+                result = ImportResult(title="Kein Text erkannt", ingredients=[], steps=[])
+            logger.debug("Image parsed via heuristic parser")
+
+    return result
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
 @router.get("/url", response_model=ImportResult)
 def import_from_url(
     url: str = Query(..., description="Recipe website URL"),
@@ -43,7 +154,7 @@ def import_from_url(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not scrape URL: {e}")
 
-    # Try AI enhancement if the endpoint is configured
+    # Try AI enhancement on scraped text (URL scraper already structures data)
     combined_text = "\n".join(
         [result.title or ""]
         + result.ingredients
@@ -52,7 +163,6 @@ def import_from_url(
     )
     ai_result = parse_with_ai(combined_text)
     if ai_result:
-        # Preserve fields that the AI result may have left empty
         if not ai_result.source_url:
             ai_result.source_url = result.source_url
         if not ai_result.image_url:
@@ -73,25 +183,11 @@ async def import_from_file(
         raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
 
     if _is_pdf(file):
-        result = ocr_pdf(content, handwriting=handwriting)
+        return _parse_pdf(content, handwriting)
     elif _is_image(file):
-        result = ocr_image(content, file.content_type or "image/jpeg", handwriting=handwriting)
+        return _parse_image(content, file.content_type or "image/jpeg", handwriting)
     else:
         raise HTTPException(status_code=415, detail="Unsupported file type. Use PDF or image.")
-
-    # Optional AI enhancement
-    if result.title and (result.ingredients or result.ingredient_groups or result.steps):
-        combined_text = "\n".join(
-            [result.title or ""]
-            + result.ingredients
-            + [i for g in result.ingredient_groups for i in g.ingredients]
-            + result.steps
-        )
-        ai_result = parse_with_ai(combined_text)
-        if ai_result:
-            return ai_result
-
-    return result
 
 
 @router.post("/files", response_model=ImportResult)
@@ -103,7 +199,9 @@ async def import_from_files(
     if not files:
         raise HTTPException(status_code=422, detail="No files provided")
 
-    page_results: list[ImportResult] = []
+    all_texts: list[str] = []
+    all_image_urls: list[str | None] = []
+
     for file in files:
         content = await file.read()
         if len(content) > MAX_FILE_SIZE:
@@ -112,11 +210,12 @@ async def import_from_files(
                 detail=f"File '{file.filename}' is too large (max 20 MB per file)",
             )
         if _is_pdf(file):
-            page_results.append(ocr_pdf(content, handwriting=handwriting))
+            raw_text, img_url = extract_pdf_text_and_image(content, handwriting)
+            all_texts.append(raw_text)
+            all_image_urls.append(img_url)
         elif _is_image(file):
-            page_results.append(
-                ocr_image(content, file.content_type or "image/jpeg", handwriting=handwriting)
-            )
+            all_texts.append(extract_image_text(content, handwriting))
+            all_image_urls.append(None)
         else:
             logger.warning(
                 "Skipped unsupported file '%s' (content-type: %s) in multi-file import.",
@@ -124,24 +223,25 @@ async def import_from_files(
                 file.content_type,
             )
 
-    if not page_results:
-        raise HTTPException(status_code=422, detail="No processable files found")
+    if not any(t.strip() for t in all_texts):
+        raise HTTPException(status_code=422, detail="No processable content found")
 
-    merged = merge_import_results(page_results)
+    combined_text = "\n\n".join(t for t in all_texts if t.strip())
+    first_image_url = next((u for u in all_image_urls if u), None)
 
-    # Optional AI enhancement on merged text
-    if merged.title:
-        combined_text = "\n".join(
-            [merged.title or ""]
-            + merged.ingredients
-            + [i for g in merged.ingredient_groups for i in g.ingredients]
-            + merged.steps
-        )
-        ai_result = parse_with_ai(combined_text)
-        if ai_result:
-            return ai_result
+    # Try AI on the full combined text (one pass → better context for the LLM)
+    result = parse_with_ai(combined_text)
+    if result is None:
+        # Heuristic: parse each page separately, then merge
+        page_results = [parse_ocr_text(t) for t in all_texts if t.strip()]
+        if not page_results:
+            raise HTTPException(status_code=422, detail="No processable files found")
+        result = merge_import_results(page_results)
 
-    return merged
+    if first_image_url and not result.image_url:
+        result.image_url = first_image_url
+
+    return result
 
 
 @router.post("/camera", response_model=ImportResult)
@@ -154,19 +254,4 @@ async def import_from_camera(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large")
 
-    result = ocr_image(content, file.content_type or "image/jpeg", handwriting=handwriting)
-
-    # Optional AI enhancement
-    if result.title:
-        combined_text = "\n".join(
-            [result.title or ""]
-            + result.ingredients
-            + [i for g in result.ingredient_groups for i in g.ingredients]
-            + result.steps
-        )
-        ai_result = parse_with_ai(combined_text)
-        if ai_result:
-            return ai_result
-
-    return result
-
+    return _parse_image(content, file.content_type or "image/jpeg", handwriting)
