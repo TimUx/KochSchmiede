@@ -1,40 +1,49 @@
-"""AI-powered recipe parser with multi-backend support.
+"""AI-powered recipe parser – free / local backends only.
 
 Priority order for parsing
 --------------------------
-1. **OpenAI-compatible chat/vision API** (``OPENAI_API_KEY`` or custom
-   ``OPENAI_BASE_URL``) – text *and* vision.
-   Compatible with: OpenAI (GPT-4o / GPT-4o-mini), Groq, Together.ai,
-   LM Studio, Ollama ``/v1`` endpoint, Azure OpenAI, and any other server
-   that implements the OpenAI Chat Completions spec.
-   Vision-capable models (``gpt-4o``, ``llava``, ``llama3.2-vision``, …)
-   can parse recipe *images* directly — no OCR step required.
+1. **Local LLM via OpenAI Chat Completions protocol** (``LLM_BASE_URL``) –
+   text *and* vision.  Works with any local server that implements the
+   OpenAI-compatible API:
+
+   * **Ollama** – start the bundled service with
+     ``docker compose --profile ollama up``, then set
+     ``LLM_BASE_URL=http://ollama:11434/v1``.
+     Pull a vision model for best results:
+     ``docker compose exec ollama ollama pull llama3.2-vision``
+
+   * **LM Studio** – free desktop app at https://lmstudio.ai.
+     Start the local server and set
+     ``LLM_BASE_URL=http://host.docker.internal:1234/v1``.
+
+   Vision-capable models (``llama3.2-vision``, ``llava``, ``minicpm-v``, …)
+   parse recipe *images* directly — no OCR step required, handles tables /
+   columns / grids perfectly.
 
 2. **Ollama native ``/api/generate``** (``AI_ENDPOINT``) – text-only,
    kept for backwards compatibility.
 
 3. **Heuristic parser** – always available, zero configuration.
 
-Quick-start examples
---------------------
-OpenAI (best quality)::
+Quick-start (Ollama, recommended)::
 
-    OPENAI_API_KEY=sk-...
+    # 1. Start stack with Ollama included
+    docker compose --profile ollama up -d
 
-Groq (fast, generous free tier)::
+    # 2. Pull a vision model (best quality)
+    docker compose exec ollama ollama pull llama3.2-vision
 
-    OPENAI_API_KEY=gsk_...
-    OPENAI_BASE_URL=https://api.groq.com/openai/v1
-    OPENAI_MODEL=llama-3.1-8b-instant
+    # 3. Add to .env
+    LLM_BASE_URL=http://ollama:11434/v1
+    LLM_MODEL=llama3.2-vision
 
-Ollama (local, free)::
+Quick-start (LM Studio)::
 
-    OPENAI_BASE_URL=http://ollama:11434/v1
-    OPENAI_MODEL=llama3.2               # or llama3.2-vision for image support
-
-LM Studio (local, free)::
-
-    OPENAI_BASE_URL=http://localhost:1234/v1
+    # 1. Download LM Studio and load a model (e.g. llama-3.2-vision)
+    # 2. Start the local server in LM Studio
+    # 3. Add to .env
+    LLM_BASE_URL=http://host.docker.internal:1234/v1
+    LLM_MODEL=your-loaded-model-name
 """
 from __future__ import annotations
 
@@ -93,17 +102,9 @@ Regeln:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _openai_api_enabled() -> bool:
-    """True when the OpenAI-compatible chat API can be used.
-
-    Covers:
-    - OpenAI (``OPENAI_API_KEY`` set, default base URL)
-    - Any local endpoint (``OPENAI_BASE_URL`` overridden, no key required)
-    - Groq / Together / Azure / etc. (key + custom base URL)
-    """
-    return bool(settings.OPENAI_API_KEY) or (
-        settings.OPENAI_BASE_URL != "https://api.openai.com/v1"
-    )
+def _llm_api_enabled() -> bool:
+    """True when a local LLM server is configured via ``LLM_BASE_URL``."""
+    return bool(settings.LLM_BASE_URL)
 
 
 def _ollama_enabled() -> bool:
@@ -127,25 +128,25 @@ def _build_import_result(parsed: dict) -> ImportResult:
     return ImportResult(**safe)
 
 
-# ── Backend 1: OpenAI-compatible chat completions (text + vision) ─────────────
+# ── Backend 1: local LLM via OpenAI Chat Completions protocol ─────────────────
 
 
 def _call_chat_completions(messages: list[dict]) -> Optional[ImportResult]:
-    """POST to any OpenAI-compatible ``/chat/completions`` endpoint."""
-    if not _openai_api_enabled():
+    """POST to a local ``/chat/completions`` endpoint (Ollama /v1, LM Studio, …)."""
+    if not _llm_api_enabled():
         return None
     try:
         import httpx
 
-        base = settings.OPENAI_BASE_URL.rstrip("/")
+        base = settings.LLM_BASE_URL.rstrip("/")
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        if settings.OPENAI_API_KEY:
-            headers["Authorization"] = f"Bearer {settings.OPENAI_API_KEY}"
+        if settings.LLM_API_KEY:
+            headers["Authorization"] = f"Bearer {settings.LLM_API_KEY}"
 
         resp = httpx.post(
             f"{base}/chat/completions",
             json={
-                "model": settings.OPENAI_MODEL,
+                "model": settings.LLM_MODEL,
                 "messages": messages,
                 "response_format": {"type": "json_object"},
                 "temperature": 0.1,
@@ -159,7 +160,7 @@ def _call_chat_completions(messages: list[dict]) -> Optional[ImportResult]:
         parsed: dict = json.loads(content)
         return _build_import_result(parsed)
     except Exception as exc:
-        logger.debug("OpenAI-compatible API call failed: %s", exc)
+        logger.debug("Local LLM API call failed: %s", exc)
         return None
 
 
@@ -195,16 +196,17 @@ def _parse_with_ollama_generate(text: str) -> Optional[ImportResult]:
 
 
 def parse_with_ai(text: str) -> Optional[ImportResult]:
-    """Parse raw recipe text with the best available AI backend.
+    """Parse raw recipe text with the best available free AI backend.
 
-    Tries the OpenAI-compatible chat API first; falls back to Ollama's native
-    endpoint if configured.  Returns ``None`` when no AI backend is available
-    so callers can fall back to the heuristic parser.
+    Tries the local LLM server (Ollama /v1 or LM Studio) first; falls
+    back to Ollama's native ``/api/generate`` endpoint if configured.
+    Returns ``None`` when no AI backend is available so callers fall back
+    to the heuristic parser.
     """
     if not text.strip():
         return None
 
-    # 1. OpenAI-compatible chat completions (preferred)
+    # 1. Local LLM via chat completions (Ollama /v1, LM Studio, …)
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
@@ -226,18 +228,18 @@ def parse_with_ai(text: str) -> Optional[ImportResult]:
 def parse_image_with_ai(
     image_bytes: bytes, mime_type: str = "image/jpeg"
 ) -> Optional[ImportResult]:
-    """Parse a recipe image directly using a vision-capable AI model.
+    """Parse a recipe image directly using a vision-capable local LLM.
 
     Sends the raw image to the vision model, bypassing Tesseract OCR
     entirely.  This yields significantly better results for complex
     layouts, tables, multi-column PDFs, and handwritten recipes.
 
-    Requires the OpenAI-compatible API with a vision model such as
-    ``gpt-4o``, ``gpt-4o-mini``, ``llava``, or ``llama3.2-vision``.
+    Requires a local LLM server (``LLM_BASE_URL``) running a vision model
+    such as ``llama3.2-vision``, ``llava``, or ``minicpm-v``.
 
     Returns ``None`` when no vision AI is configured or the call fails.
     """
-    if not _openai_api_enabled():
+    if not _llm_api_enabled():
         return None
 
     b64 = base64.b64encode(image_bytes).decode()
@@ -265,15 +267,14 @@ def parse_image_with_ai(
 
 def has_text_ai() -> bool:
     """Return ``True`` if any text-based AI backend is configured."""
-    return _openai_api_enabled() or _ollama_enabled()
+    return _llm_api_enabled() or _ollama_enabled()
 
 
 def has_vision_ai() -> bool:
-    """Return ``True`` if a vision-capable AI backend is configured.
+    """Return ``True`` if a vision-capable local LLM is configured.
 
     Vision AI sends images directly to the model (no OCR needed).
-    Requires ``OPENAI_API_KEY`` or a custom ``OPENAI_BASE_URL`` pointing
-    to a vision-capable model (e.g. ``gpt-4o``, ``llava``,
-    ``llama3.2-vision``).
+    Requires ``LLM_BASE_URL`` pointing to a server running a vision model
+    (e.g. ``llama3.2-vision``, ``llava``, ``minicpm-v``).
     """
-    return _openai_api_enabled()
+    return _llm_api_enabled()

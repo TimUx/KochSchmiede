@@ -2,15 +2,15 @@
 
 Parsing priority for every file / camera import
 ------------------------------------------------
-1. **Vision AI** – if a vision-capable model is configured
-   (``OPENAI_API_KEY`` or ``OPENAI_BASE_URL`` pointing to a vision model
-   such as ``gpt-4o`` or ``llava``), the image / rendered PDF page is sent
-   directly to the model.  This handles any layout (tables, columns, grids)
-   with the highest accuracy.
+1. **Vision AI** – if a vision-capable local LLM is configured
+   (``LLM_BASE_URL`` pointing to a vision model such as
+   ``llama3.2-vision`` or ``llava``), the image / rendered PDF page is
+   sent directly to the model.  This handles any layout (tables, columns,
+   grids) with the highest accuracy.
 
-2. **Text AI** – the raw OCR / PDF text is sent to the configured LLM
-   (OpenAI chat completions or Ollama ``/api/generate``).  Falls back here
-   when vision AI is unavailable or fails.
+2. **Text AI** – the raw OCR / PDF text is sent to the local LLM
+   (``LLM_BASE_URL`` chat completions or legacy Ollama ``/api/generate``).
+   Falls back here when vision AI is unavailable or fails.
 
 3. **Heuristic parser** – the built-in regex-based parser that works without
    any external service.  Always available as the last resort.

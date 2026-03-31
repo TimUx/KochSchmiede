@@ -24,10 +24,10 @@ services:
       DATABASE_URL: postgresql://kochschmiede:${POSTGRES_PASSWORD:-secret}@postgres:5432/kochschmiede
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env file}
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000","http://${DOMAIN:-localhost}","http://${DOMAIN:-localhost}:${PORT:-3000}"]'
-      # AI parsing backends (all optional – see .env.example for examples)
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # AI parsing backends – free / local only (see .env.example for setup)
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-llama3.2}
       AI_ENDPOINT: ${AI_ENDPOINT:-}
       AI_MODEL: ${AI_MODEL:-llama3.2}
     depends_on:
@@ -63,10 +63,10 @@ services:
   # ── Optional: local Ollama LLM server ──────────────────────────────────────
   # Start with:  docker compose --profile ollama up
   # Then set in .env:
-  #   OPENAI_BASE_URL=http://ollama:11434/v1
-  #   OPENAI_MODEL=llama3.2          # or llama3.2-vision for image support
+  #   LLM_BASE_URL=http://ollama:11434/v1
+  #   LLM_MODEL=llama3.2-vision      # vision model (recommended)
   # Pull a model (first time):
-  #   docker compose exec ollama ollama pull llama3.2
+  #   docker compose exec ollama ollama pull llama3.2-vision
   ollama:
     image: ollama/ollama:latest
     profiles: [ollama]
