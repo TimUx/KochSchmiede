@@ -28,7 +28,9 @@ def _clean_text(text: str) -> str:
 
 def _parse_ocr_text(text: str) -> ImportResult:
     """Parse raw OCR / PDF text into structured recipe data using heuristics."""
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    # Preserve blank lines so they can serve as paragraph separators in the
+    # steps section; only strip leading/trailing whitespace per line.
+    raw_lines = [l.strip() for l in text.splitlines()]
 
     title: Optional[str] = None
     ingredients: list[str] = []
