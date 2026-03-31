@@ -339,61 +339,77 @@ def _save_imported_image(img_bytes: bytes) -> Optional[str]:
         return None
 
 
-def ocr_image(
-    image_bytes: bytes,
-    mime_type: str = "image/jpeg",
-    handwriting: bool = False,
-) -> ImportResult:
-    """Run OCR on an image and extract recipe data.
+def extract_image_text(image_bytes: bytes, handwriting: bool = False) -> str:
+    """Extract raw text from an image using Tesseract OCR.
 
-    Parameters
-    ----------
-    handwriting:
-        When True, applies contrast/sharpening preprocessing and uses
-        Tesseract's LSTM-only engine with column-aware page segmentation,
-        which works better for handwritten recipe pages.
+    Returns an empty string when OCR is not available.
     """
     if not OCR_AVAILABLE:
-        return ImportResult(title="OCR nicht verfügbar", ingredients=[], steps=[])
+        return ""
 
     from PIL import ImageEnhance, ImageFilter
 
     image = Image.open(io.BytesIO(image_bytes))
-    # Convert to grayscale for better OCR accuracy
     image = image.convert("L")
 
     if handwriting:
-        # Enhance contrast and sharpen to help LSTM neural net read handwriting
         image = ImageEnhance.Contrast(image).enhance(2.0)
         image = image.filter(ImageFilter.SHARPEN)
-        # OEM 1 = LSTM only; PSM 6 = assume uniform block of text (good for handwriting)
         tesseract_config = "--oem 1 --psm 6"
     else:
-        # OEM 3 = default (LSTM + legacy); PSM 3 = fully automatic page segmentation
         tesseract_config = "--oem 3 --psm 3"
 
-    text = pytesseract.image_to_string(image, lang="deu+eng", config=tesseract_config)
-    return _parse_ocr_text(text)
+    return pytesseract.image_to_string(image, lang="deu+eng", config=tesseract_config)
 
 
-def ocr_pdf(pdf_bytes: bytes, handwriting: bool = False) -> ImportResult:
-    """Extract text from PDF (with optional OCR fallback for image-based or handwritten PDFs)."""
-    if PDF_AVAILABLE:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        full_text = ""
-        for page in doc:
-            full_text += page.get_text()
-        if full_text.strip():
-            result = _parse_ocr_text(full_text)
-            # Try to extract the food photo embedded in the PDF.
-            if result.image_url is None:
-                img_bytes = _extract_best_pdf_image(doc)
-                if img_bytes:
-                    result.image_url = _save_imported_image(img_bytes)
-            return result
-        # No text layer – render every page and OCR
+def _extract_text_via_pdf2image(pdf_bytes: bytes, handwriting: bool = False) -> str:
+    """Fallback text extraction using pdf2image + Tesseract when PyMuPDF is unavailable."""
+    if not OCR_AVAILABLE:
+        return ""
+    try:
+        from pdf2image import convert_from_bytes
+
+        pages = convert_from_bytes(pdf_bytes, dpi=150)
+        parts: list[str] = []
+        for page_img in pages:
+            img = page_img.convert("L")
+            if handwriting:
+                from PIL import ImageEnhance, ImageFilter
+
+                img = ImageEnhance.Contrast(img).enhance(2.0)
+                img = img.filter(ImageFilter.SHARPEN)
+                cfg = "--oem 1 --psm 6"
+            else:
+                cfg = "--oem 3 --psm 3"
+            parts.append(pytesseract.image_to_string(img, lang="deu+eng", config=cfg))
+        return "\n".join(parts)
+    except ImportError:
+        return ""
+
+
+def extract_pdf_text_and_image(
+    pdf_bytes: bytes, handwriting: bool = False
+) -> tuple[str, Optional[str]]:
+    """Extract raw text and the largest embedded image from a PDF.
+
+    Returns ``(raw_text, image_url_or_None)``.  This is the low-level
+    extraction step; *parsing* is handled separately so callers can choose
+    between AI and heuristic parsers.
+
+    Falls back to pdf2image + Tesseract when PyMuPDF is unavailable.
+    """
+    if not PDF_AVAILABLE:
+        return _extract_text_via_pdf2image(pdf_bytes, handwriting), None
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    full_text = ""
+    for page in doc:
+        full_text += page.get_text()
+
+    if not full_text.strip():
+        # Image-based PDF – render each page and OCR
         if OCR_AVAILABLE:
-            pages_text: list[str] = []
+            parts: list[str] = []
             for page in doc:
                 pix = page.get_pixmap(dpi=150)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
@@ -406,32 +422,81 @@ def ocr_pdf(pdf_bytes: bytes, handwriting: bool = False) -> ImportResult:
                     cfg = "--oem 1 --psm 6"
                 else:
                     cfg = "--oem 3 --psm 3"
-                pages_text.append(pytesseract.image_to_string(img, lang="deu+eng", config=cfg))
-            return _parse_ocr_text("\n".join(pages_text))
+                parts.append(pytesseract.image_to_string(img, lang="deu+eng", config=cfg))
+            full_text = "\n".join(parts)
+        else:
+            full_text = _extract_text_via_pdf2image(pdf_bytes, handwriting)
 
-    # Fallback: try pdf2image + pytesseract (processes ALL pages)
-    if OCR_AVAILABLE:
-        try:
-            from pdf2image import convert_from_bytes
+    # Extract the best embedded food photo from the PDF
+    image_url: Optional[str] = None
+    img_bytes = _extract_best_pdf_image(doc)
+    if img_bytes:
+        image_url = _save_imported_image(img_bytes)
 
-            pages = convert_from_bytes(pdf_bytes, dpi=150)
-            pages_text = []
-            for page_img in pages:
-                img = page_img.convert("L")
-                if handwriting:
-                    from PIL import ImageEnhance, ImageFilter
+    return full_text, image_url
 
-                    img = ImageEnhance.Contrast(img).enhance(2.0)
-                    img = img.filter(ImageFilter.SHARPEN)
-                    cfg = "--oem 1 --psm 6"
-                else:
-                    cfg = "--oem 3 --psm 3"
-                pages_text.append(pytesseract.image_to_string(img, lang="deu+eng", config=cfg))
-            return _parse_ocr_text("\n".join(pages_text))
-        except ImportError:
-            pass
 
-    return ImportResult(title="PDF Import nicht vollständig verfügbar", ingredients=[], steps=[])
+def render_pdf_first_page(pdf_bytes: bytes, dpi: int = 150) -> Optional[bytes]:
+    """Render the first page of a PDF to a JPEG image for vision AI.
+
+    Returns raw JPEG bytes or ``None`` when PyMuPDF is unavailable or fails.
+    This allows vision AI to parse PDFs with complex layouts (tables,
+    multi-column, etc.) directly from the image instead of extracted text.
+    """
+    if not PDF_AVAILABLE:
+        return None
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if not doc.page_count:
+            return None
+        pix = doc[0].get_pixmap(dpi=dpi)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=90)
+        return buf.getvalue()
+    except Exception:
+        logger.debug("render_pdf_first_page failed", exc_info=True)
+        return None
+
+
+# Public alias so callers outside this module can use the heuristic parser
+# directly (e.g. imports.py fallback path).
+parse_ocr_text = _parse_ocr_text
+
+
+def ocr_image(
+    image_bytes: bytes,
+    mime_type: str = "image/jpeg",
+    handwriting: bool = False,
+) -> ImportResult:
+    """Run OCR on an image and parse with the heuristic parser.
+
+    Kept for backward compatibility.  New callers should prefer
+    ``extract_image_text`` + ``parse_ocr_text`` so they can inject AI
+    parsing between the two steps.
+    """
+    if not OCR_AVAILABLE:
+        return ImportResult(title="OCR nicht verfügbar", ingredients=[], steps=[])
+    raw_text = extract_image_text(image_bytes, handwriting)
+    return _parse_ocr_text(raw_text)
+
+
+def ocr_pdf(pdf_bytes: bytes, handwriting: bool = False) -> ImportResult:
+    """Extract text from a PDF and parse with the heuristic parser.
+
+    Kept for backward compatibility.  New callers should prefer
+    ``extract_pdf_text_and_image`` + ``parse_ocr_text`` so they can inject
+    AI parsing between the two steps.
+    """
+    raw_text, image_url = extract_pdf_text_and_image(pdf_bytes, handwriting)
+    if not raw_text.strip():
+        return ImportResult(
+            title="PDF Import nicht vollständig verfügbar", ingredients=[], steps=[]
+        )
+    result = _parse_ocr_text(raw_text)
+    if image_url and not result.image_url:
+        result.image_url = image_url
+    return result
 
 
 def merge_import_results(results: list[ImportResult]) -> ImportResult:

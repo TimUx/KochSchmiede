@@ -9,8 +9,22 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://frontend:3000"]
 
-    # Optional AI / LLM settings (Ollama-compatible endpoint)
-    # Leave AI_ENDPOINT empty to disable AI-assisted recipe parsing.
+    # ── OpenAI-compatible API (text + vision; recommended) ────────────────────
+    # Works with: OpenAI, Azure OpenAI, Groq, Together.ai, LM Studio,
+    #             Ollama /v1 endpoint, and any other OpenAI-API-compatible server.
+    # Vision-capable models (gpt-4o, llava, llama3.2-vision, …) can parse
+    # recipe images directly without prior OCR.
+    #
+    # OpenAI:   OPENAI_API_KEY=sk-...
+    # Groq:     OPENAI_API_KEY=gsk_...  OPENAI_BASE_URL=https://api.groq.com/openai/v1
+    # Ollama:   OPENAI_BASE_URL=http://ollama:11434/v1  OPENAI_MODEL=llama3.2
+    # LM Studio:OPENAI_BASE_URL=http://localhost:1234/v1
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
+    # ── Legacy Ollama /api/generate (kept for backwards compatibility) ─────────
+    # Prefer OPENAI_BASE_URL=http://ollama:11434/v1 for new setups.
     # Example: AI_ENDPOINT=http://ollama:11434
     AI_ENDPOINT: str = ""
     AI_MODEL: str = "llama3.2"
