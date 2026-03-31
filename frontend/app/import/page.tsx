@@ -48,7 +48,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "";
  * partial matches (e.g. "Zehe/n" before "Zehe", "kg" before "g").
  */
 const KNOWN_UNITS = [
-  "Scheibe(n)", "Scheiben", "Scheibe",
+  "Scheibe(n)", "Scheibe/n", "Scheiben", "Scheibe",
   "Stangen", "Stange",
   "Blätter", "Blatt",
   "Flaschen", "Flasche",
@@ -80,30 +80,47 @@ const KNOWN_UNITS = [
 /**
  * Parse a raw ingredient string like "500 g Magerquark" into its
  * constituent parts: numeric amount, unit, and ingredient name.
+ *
+ * Handles:
+ *  - integers and decimals:  "500", "1.5", "1,5"
+ *  - written fractions:      "1/2", "3/4"
+ *  - Unicode fractions:      "½", "¼", "¾", "⅓", "⅔", …  (U+00BC–U+00BE, U+2150–U+215E)
+ *  - mixed amounts:          "1½", "1 ½"
+ *  - "n. B." / "n.B."       (nach Bedarf / to taste)
  */
 function parseIngredient(raw: string): { amount: string; unit: string; name: string } {
   const trimmed = raw.trim();
+
+  // Unicode fraction characters (¼ ½ ¾ ⅓ ⅔ ⅛ ⅜ ⅝ ⅞ …)
+  const FRAC = "\u00BC-\u00BE\u2150-\u215E";
+
+  // Amount token: integer/decimal, optional written fraction (1/2), optional
+  // unicode fraction suffix (1½), standalone unicode fraction, or "n. B."
+  const AMT =
+    `(?:\\d+[,.]?\\d*(?:\\s*/\\s*\\d+)?(?:\\s*[${FRAC}])?` +  // 1, 1.5, 1/2, 1½
+    `|[${FRAC}]` +                                              // ½ alone
+    `|n\\.?\\s*[Bb]\\.)`;                                       // n. B.
 
   // Build a regex alternation from the known-units list, escaping special chars.
   const unitAlt = KNOWN_UNITS
     .map((u) => u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
 
-  // Try: number  unit  name
+  // Try: amount  unit  name
   const withUnit = new RegExp(
-    `^(\\d+[,.]?\\d*)\\s+(${unitAlt})\\.?\\s+(.+)$`,
-    "i",
+    `^(${AMT})\\s+(${unitAlt})\\.?\\s+(.+)$`,
+    "iu",
   );
-  // Try: number  name  (no recognisable unit)
-  const withAmountOnly = /^(\d+[,.]?\d*)\s+(.+)$/;
+  // Try: amount  name  (no recognisable unit)
+  const withAmountOnly = new RegExp(`^(${AMT})\\s+(.+)$`, "iu");
 
   let m = trimmed.match(withUnit);
   if (m) {
-    return { amount: m[1].replace(",", "."), unit: m[2].trim(), name: m[3].trim() };
+    return { amount: m[1].replace(",", ".").trim(), unit: m[2].trim(), name: m[3].trim() };
   }
   m = trimmed.match(withAmountOnly);
   if (m) {
-    return { amount: m[1].replace(",", "."), unit: "", name: m[2].trim() };
+    return { amount: m[1].replace(",", ".").trim(), unit: "", name: m[2].trim() };
   }
   return { amount: "", unit: "", name: trimmed };
 }

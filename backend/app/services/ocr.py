@@ -42,26 +42,42 @@ def _parse_ocr_text(text: str) -> ImportResult:
         r"(\d+[\.,]?\d*\s*(g|kg|ml|l|cl|tl|el|tbsp|tsp|cup|oz|lb|prise|stk|stück)?)",
         re.IGNORECASE,
     )
-    step_re = re.compile(r"^(\d+[\.\):]?\s+)", re.IGNORECASE)
+    step_re = re.compile(r"^(\d{1,3}[\.\):]\s+|schritt\s+\d+|step\s+\d+)", re.IGNORECASE)
 
-    # Pattern for ingredient sub-group headers, e.g. "Für den Teig:", "Soße:", "Marinade"
+    # Ingredient sub-group headers.
+    # Matches both short forms ("Für den Teig:", "Füllung:") and the longer
+    # Chefkoch single-page form ("Zutaten für den Teig:", "Zutaten für die Sauce:").
+    # \w[^.!?]{1,34} requires at least 2 chars after the article, preventing
+    # bare "Für den" from matching; also prevents matching full sentences that
+    # end with .!? because [^.!?] won't consume those characters.
     group_header_re = re.compile(
-        r"^(für\s+\w.*|for\s+the\s+\w.*|teig|soße|sauce|füllung|topping|dressing|marinade"
-        r"|glasur|belag|kruste|suppe|brühe|fond|garnierung|creme|sirup)[\s:]*$",
+        r"^(?:"
+        r"zutaten\s+für\s+(?:den|die|das)\s+\w[^.!?]{1,34}"  # "Zutaten für den Teig"
+        r"|für\s+\w[^.!?]{1,34}"                              # "Für den Teig"
+        r"|for\s+the\s+\w[^.!?]{1,24}"                        # "For the dough"
+        r"|teig|soße|sauce|füllung|topping|dressing|marinade"
+        r"|glasur|belag|kruste|suppe|brühe|fond|garnierung|creme|sirup"
+        r")[\s:]*$",
         re.IGNORECASE,
     )
 
-    # Boilerplate lines common in printed/exported recipe PDFs (logos, navigation, attribution)
+    # Boilerplate lines common in printed/exported recipe PDFs.
     noise_re = re.compile(
         r"^(?:chefkoch|rezept\s+online\b|aufrufen\b|rezept\s+von\b|schwierigkeitsgrad\b"
-        r"|gesamtzeit\b|portionsgröße\b|kalorien\b|nährwert).*$",
+        r"|gesamtzeit\b|portionsgröße\b|kalorien\b|nährwert|foto[:\s]).*$",
         re.IGNORECASE,
     )
 
-    # Timing patterns: "Arbeitszeit ca. 35 Minuten", "Koch-/Backzeit  ca. 20 Minuten"
-    arbeitszeit_re = re.compile(r"\barbeitszeit\b[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE)
+    # Timing patterns.
+    # arbeitszeit_re: "Arbeitszeit ca. 35 Minuten", "Arbeitszeit: 35 min"
+    # kochzeit_re: "Koch-/Backzeit ca. 20 Minuten", "Kochzeit: 15 min"
+    # Requiring *zeit* in the matched word prevents false positives from step
+    # instructions like "im Backofen ca. 20 Minuten backen".
+    arbeitszeit_re = re.compile(
+        r"\barbeitszeit\b[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE
+    )
     kochzeit_re = re.compile(
-        r"\b(?:koch|back)[-/\w]*[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE
+        r"\b(?:koch|back)[-/\w]*zeit\b[\s:]+(?:ca\.?\s+)?(\d+)\s*min", re.IGNORECASE
     )
 
     in_ingredients = False
@@ -101,13 +117,23 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 cook_time = int(m.group(1))
                 continue
 
+        # ── Ingredient group headers (checked BEFORE the generic section header
+        #    so "Zutaten für den Teig:" is treated as a named group, not merely
+        #    as a second "Zutaten" section restart) ────────────────────────────
+        if group_header_re.match(line):
+            in_ingredients = True
+            in_steps = False
+            _flush_current_group()
+            current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
+            continue
+
         # ── Section: Ingredients ─────────────────────────────────────────────
-        # "Zutaten für N Portionen" starts the ingredients section AND carries
-        # servings information; plain "Zutaten" also works.
+        # "Zutaten für N Portionen" starts the section AND carries servings.
+        # Plain "Zutaten" (and exact English equivalents) also starts the section.
         if lower in ingredients_headers or lower.startswith("zutaten"):
             if servings is None:
                 m = re.search(
-                    r"(?:zutaten\s+für|für)\s+(\d+)\s*(?:portion|person|stück|serving)",
+                    r"zutaten\s+für\s+(\d+)\s*(?:portion|person|stück|serving)",
                     line,
                     re.IGNORECASE,
                 )
@@ -131,32 +157,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
 
         # ── Ingredient section content ────────────────────────────────────────
         if in_ingredients:
-            # Detect ingredient group sub-headers ("Für den Teig:", "Füllung:", …)
-            if group_header_re.match(line):
-                _flush_current_group()
-                current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
-                continue
-
             if step_re.match(line) or len(line) > 80:
-                # Transition to steps
+                # Long / numbered line → transition to steps.
                 _flush_current_group()
                 in_steps = True
                 in_ingredients = False
-                # Fall through so this line is also handled by the steps block below.
+                # Fall through so this line is also handled by the steps block.
             else:
                 if current_group is not None:
                     current_group["ingredients"].append(line)
                 else:
                     ingredients.append(line)
                 continue
-
-        # ── Group header encountered before an explicit "Zutaten" header ─────
-        elif not in_steps and group_header_re.match(line):
-            # Implicitly start the ingredient section with this group.
-            in_ingredients = True
-            _flush_current_group()
-            current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
-            continue
 
         # ── Steps content ─────────────────────────────────────────────────────
         if in_steps:
@@ -287,6 +299,11 @@ def merge_import_results(results: list[ImportResult]) -> ImportResult:
         None,
     ) or "Importiertes Rezept"
 
+    # Use the first non-None value found across all pages for metadata
+    prep_time = next((r.prep_time for r in results if r.prep_time is not None), None)
+    cook_time = next((r.cook_time for r in results if r.cook_time is not None), None)
+    servings = next((r.servings for r in results if r.servings is not None), None)
+
     # Combine ingredients (deduplicate)
     seen: set[str] = set()
     ingredients: list[str] = []
@@ -314,5 +331,8 @@ def merge_import_results(results: list[ImportResult]) -> ImportResult:
         ingredient_groups=ingredient_groups,
         steps=steps[:30],
         tags=tags,
+        prep_time=prep_time,
+        cook_time=cook_time,
+        servings=servings,
     )
 
