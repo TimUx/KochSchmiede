@@ -6,6 +6,7 @@ import Link from "next/link";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
+import WakeLockToggle from "./WakeLockToggle";
 import { navItems } from "./navConfig";
 import { LogIn, LogOut } from "lucide-react";
 
@@ -72,6 +73,7 @@ export default function Sidebar() {
         <div className="flex items-center justify-between px-2">
           <div className="flex items-center gap-1">
             <LanguageSwitcher />
+            <WakeLockToggle />
             <ThemeToggle />
           </div>
           {loggedIn ? (
