@@ -7,14 +7,33 @@ import { NextRequest, NextResponse } from "next/server";
 // regardless of what the container sets.
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
+// Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
+// Forwarding them can confuse the upstream server or cause undici (Node.js
+// built-in fetch) to throw on conflicting header combinations.
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailers",
+  "transfer-encoding",
+  "upgrade",
+]);
+
 type Context = { params: Promise<{ path: string[] }> };
 
 async function proxyRequest(req: NextRequest, context: Context): Promise<NextResponse> {
   const { path } = await context.params;
   const url = `${BACKEND_URL}/api/${path.join("/")}${req.nextUrl.search}`;
 
-  const headers = new Headers(req.headers);
-  headers.delete("host");
+  const headers = new Headers();
+  // Copy only non-hop-by-hop, non-host headers to the forwarded request.
+  req.headers.forEach((value, key) => {
+    if (key !== "host" && !HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+      headers.set(key, value);
+    }
+  });
 
   const init: RequestInit = {
     method: req.method,
@@ -28,22 +47,32 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
     const body = await req.arrayBuffer();
     init.body = body;
     headers.set("content-length", String(body.byteLength));
+  } else {
+    // GET/HEAD requests must not carry a body.  Remove any Content-Length or
+    // Content-Type header that the client or an upstream proxy may have added.
+    headers.delete("content-length");
+    headers.delete("content-type");
   }
 
   try {
     const backendRes = await fetch(url, init);
 
-    const responseHeaders = new Headers(backendRes.headers);
-    // Remove hop-by-hop headers that should not be forwarded
-    responseHeaders.delete("connection");
-    responseHeaders.delete("transfer-encoding");
+    const responseHeaders = new Headers();
+    // Copy only non-hop-by-hop response headers.
+    backendRes.headers.forEach((value, key) => {
+      if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+        responseHeaders.set(key, value);
+      }
+    });
 
     return new NextResponse(backendRes.body, {
       status: backendRes.status,
       statusText: backendRes.statusText,
       headers: responseHeaders,
     });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[proxy] Failed to reach backend at ${url}: ${message}`);
     return NextResponse.json(
       { detail: "Backend unreachable" },
       { status: 502 }
