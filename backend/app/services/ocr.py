@@ -106,10 +106,21 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # The "portion(en) hat/haben/ergibt" pattern removes nutritional notes
     # that some Chefkoch exports append after the recipe steps, e.g.
     # "1 Portion hat (durch den Magerquark) 0,5 KE für die Anrechnung …".
+    # "gespeichert" catches the website social/bookmarks UI bar that sometimes
+    # OCRs from Chefkoch screenshot imports (merged form "GespeichertimKochbuch"
+    # or spaced "Gespeichert im Kochbuch").
+    # "@" at the start of a line is an OCR artifact from UI icon glyphs (e.g.
+    # the Chefkoch save-to-cookbook button) — real recipe text never starts with @.
+    # "gesamtzeit arbeitszeit" (combined timing label row from screenshot
+    # timing-bar, e.g. "Gesamtzeit Arbeitszeit Koch-/Backzeit") is also noise.
+    # "®" matches the stray registered-trade-mark glyph OCRed from the page footer.
     noise_re = re.compile(
         r"^(?:chefkoch|rezept\s+online\b|aufrufen\b|rezept\s+von\b|schwierigkeitsgrad\b"
         r"|gesamtzeit|portionsgröße\b|kalorien\b|nährwert|foto[:\s]"
-        r"|\d+\s+portion(?:en)?\s+(?:hat|haben|ergibt|ergeben)\b).*$",
+        r"|\d+\s+portion(?:en)?\s+(?:hat|haben|ergibt|ergeben)\b"
+        r"|gespeichert|@"
+        r"|®"
+        r"|gesamtzeit\s+arbeitszeit|arbeitszeit\s+(?:koch|back)).*$",
         re.IGNORECASE,
     )
 
@@ -122,6 +133,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
     )
     kochzeit_re = re.compile(
         r"\b(?:koch|back)[-/\w]*zeit[\s:]*(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE
+    )
+
+    # Compact 3-value timing bar from Chefkoch screenshot imports.
+    # OCR renders the timing row as a single line with icon glyphs between the
+    # minute values, e.g. "© 55Min. © 35Min. G 20Min." where the order is
+    # always Gesamtzeit → Arbeitszeit → Koch-/Backzeit.  We extract the 2nd
+    # value as prep_time and the 3rd value as cook_time and then discard the
+    # whole line (noise).  The regex requires exactly 3 integer+Min groups to
+    # avoid accidentally matching step sentences that mention minutes.
+    _compact_timing_bar_re = re.compile(
+        r"^\D*(\d+)\s*[Mm]in\.?\D+(\d+)\s*[Mm]in\.?\D+(\d+)\s*[Mm]in",
+        re.IGNORECASE,
     )
 
     # Patterns for standalone timing-keyword lines whose value appears on the
@@ -289,6 +312,19 @@ def _parse_ocr_text(text: str) -> ImportResult:
             pending_discard = True
             continue
 
+        # ── Compact 3-value timing bar from screenshot imports ─────────────────
+        # e.g. "© 55Min. © 35Min. G 20Min." (Gesamtzeit/Arbeitszeit/Koch-Backzeit)
+        # This check runs BEFORE noise_re so that the "©" glyph at the start of
+        # the timing bar line does not trigger noise filtering before the minute
+        # values are extracted.
+        m = _compact_timing_bar_re.match(line)
+        if m:
+            if prep_time is None:
+                prep_time = int(m.group(2))
+            if cook_time is None:
+                cook_time = int(m.group(3))
+            continue  # discard the whole timing bar line
+
         # ── Skip known noise / boilerplate ───────────────────────────────────
         if noise_re.match(line):
             continue
@@ -312,6 +348,22 @@ def _parse_ocr_text(text: str) -> ImportResult:
         if cook_time is None and kochzeit_keyword_re.match(line):
             pending_cook_time = True
             continue
+
+        # ── "Für N Portionen" standalone line (screenshot-style servings) ─────
+        # On the Chefkoch website the serving count appears as a standalone line
+        # "Für 2 Portionen" just below the "Zutaten" heading.  The
+        # group_header_re would otherwise treat this as a named ingredient group
+        # (because it starts with "für ").  Detect and convert it to servings
+        # before the group_header check fires.
+        if servings is None:
+            m = re.match(
+                r"^für\s+(\d+)\s*(?:portion|person|stück|serving)",
+                line,
+                re.IGNORECASE,
+            )
+            if m:
+                servings = int(m.group(1))
+                continue
 
         # ── Ingredient group headers (checked BEFORE the generic section header
         #    so "Zutaten für den Teig:" is treated as a named group, not merely
