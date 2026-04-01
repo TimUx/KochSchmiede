@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import ShareDialog from "@/components/ShareDialog";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Clock,
@@ -68,6 +69,7 @@ function formatAmount(amount: string, unit: string | null): string {
 
 export default function RecipeView({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,6 +86,10 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
         const headers: Record<string, string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
         const res = await fetch(`${API}/api/recipes/${id}`, { headers });
+        if (res.status === 401) {
+          router.replace("/login");
+          return;
+        }
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.detail ?? "Rezept nicht gefunden");

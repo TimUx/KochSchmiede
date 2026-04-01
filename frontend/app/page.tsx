@@ -46,9 +46,13 @@ export default function Dashboard() {
         const headers: Record<string, string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
         const res = await fetch(`${API}/api/recipes/`, { headers });
+        if (res.status === 401) {
+          router.replace("/login");
+          return;
+        }
         if (res.ok) setRecipes(await res.json());
       } catch {
-        // silently fail — guest mode may 401, that's expected
+        // silently fail on network errors
       } finally {
         setLoading(false);
       }
