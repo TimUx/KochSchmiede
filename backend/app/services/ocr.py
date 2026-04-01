@@ -103,9 +103,13 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # Boilerplate lines common in printed/exported recipe PDFs.
     # "gesamtzeit" has no trailing \b so it also matches "Gesamtzeitca." (PDF
     # formatting where no space appears between the keyword and "ca.").
+    # The "portion(en) hat/haben/ergibt" pattern removes nutritional notes
+    # that some Chefkoch exports append after the recipe steps, e.g.
+    # "1 Portion hat (durch den Magerquark) 0,5 KE für die Anrechnung …".
     noise_re = re.compile(
         r"^(?:chefkoch|rezept\s+online\b|aufrufen\b|rezept\s+von\b|schwierigkeitsgrad\b"
-        r"|gesamtzeit|portionsgröße\b|kalorien\b|nährwert|foto[:\s]).*$",
+        r"|gesamtzeit|portionsgröße\b|kalorien\b|nährwert|foto[:\s]"
+        r"|\d+\s+portion(?:en)?\s+(?:hat|haben|ergibt|ergeben)\b).*$",
         re.IGNORECASE,
     )
 
@@ -321,6 +325,9 @@ def _parse_ocr_text(text: str) -> ImportResult:
             # Normalise Chefkoch-style long form "Zutaten für den Teig" →
             # short form "Für den Teig" so group labels are clean in the UI.
             group_name = re.sub(r"^Zutaten\s+", "", group_name, flags=re.IGNORECASE)
+            # Re-capitalise the first letter after stripping "Zutaten ".
+            # The `if group_name` guard prevents IndexError on empty strings
+            # (empty strings are falsy in Python).
             if group_name:
                 group_name = group_name[0].upper() + group_name[1:]
             current_group = {"name": group_name, "ingredients": []}
@@ -400,8 +407,12 @@ def _parse_ocr_text(text: str) -> ImportResult:
             # or descriptions that slipped into the ingredient section (common
             # in single-page PDFs with multi-column layouts) – discard them.
             # German ingredient names always start with an uppercase letter.
+            # Exception: German cooking abbreviations that begin with a single
+            # lowercase letter followed by a period (e.g. "n. B." = "nach
+            # Belieben", "n. B. Kräuter, italienische").
             if line and line[0].islower() and len(line) <= 50:
-                continue
+                if not re.match(r"^[a-z]\.\s", line):
+                    continue
 
             # If the recipe title reappears inside the ingredient section (a
             # common PDF layout artefact) skip it rather than adding it as an
@@ -430,11 +441,17 @@ def _parse_ocr_text(text: str) -> ImportResult:
             # - A numbered step line (e.g. "1. Mix flour")
             # - A longer prose line (> 50 chars) typical of step instructions
             # - A sentence-continuation line that starts with a lowercase letter
-            #   (len > 50; shorter lowercase lines are already discarded above)
+            #   that is NOT a German cooking abbreviation (e.g. "n. B." =
+            #   "nach Belieben") — the same exception applied to the discard
+            #   check above.
             is_step_transition = (
                 step_re.match(line)
                 or len(line) > 50
-                or (line and line[0].islower())
+                or (
+                    line
+                    and line[0].islower()
+                    and not re.match(r"^[a-z]\.\s", line)
+                )
             )
             if is_step_transition:
                 # Transition to steps; fall through to the steps block below.
@@ -675,12 +692,34 @@ def extract_pdf_text_and_image(
                 right_blocks.append((by0, text))  # ingredients column
 
         # Each group is sorted by vertical position; groups are concatenated
-        # in the order: full-width → left column → right column.
-        ordered_parts = (
-            [t for _, t in sorted(full_blocks)]
-            + [t for _, t in sorted(left_blocks)]
-            + [t for _, t in sorted(right_blocks)]
-        )
+        # in reading order.
+        if full_blocks:
+            # When full-width blocks exist (e.g. step paragraphs spanning the
+            # full page width), left-column blocks that sit ABOVE the first
+            # full-width block (smaller y) are placed before it.  This
+            # preserves cross-page ingredient continuations: e.g. a 2-page
+            # recipe where the last ingredient overflows to the top of page 2
+            # as a narrow left block, while the recipe steps span the full
+            # page width starting just below it.  Without this split the
+            # ingredient would be sorted after all steps and mistakenly
+            # captured as one.
+            first_full_y = min(y for y, _ in full_blocks)
+            pre_full_left = [(y, t) for y, t in left_blocks if y < first_full_y]
+            post_full_left = [(y, t) for y, t in left_blocks if y >= first_full_y]
+            ordered_parts = (
+                [t for _, t in sorted(pre_full_left)]
+                + [t for _, t in sorted(full_blocks)]
+                + [t for _, t in sorted(post_full_left)]
+                + [t for _, t in sorted(right_blocks)]
+            )
+        else:
+            # No full-width blocks: simple left → right ordering (covers the
+            # common two-column layout where instructions are on the left and
+            # ingredients on the right).
+            ordered_parts = (
+                [t for _, t in sorted(left_blocks)]
+                + [t for _, t in sorted(right_blocks)]
+            )
         if ordered_parts:
             # Separate blocks with a blank line so paragraph boundaries are
             # preserved for the step-splitting logic in the heuristic parser.
