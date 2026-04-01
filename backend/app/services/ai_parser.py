@@ -70,6 +70,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 from typing import Optional
 
 from app.config import settings
@@ -79,7 +80,9 @@ logger = logging.getLogger(__name__)
 
 # Max characters of recipe text sent to the LLM to stay within typical
 # context windows and avoid long inference times.
-_AI_TEXT_LIMIT = 8000
+# Set conservatively so that the system prompt + recipe text fits within a
+# 4096-token context window (common for small local models such as llama3.2 3B).
+_AI_TEXT_LIMIT = 3000
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 # Shared by both text and vision backends.
@@ -110,7 +113,12 @@ Regeln:
 - Wenn alle Zutaten zu einer Gruppe gehören → "ingredients" (flache Liste),
   "ingredient_groups" leer lassen.
 - Bei mehreren Zutatengruppen → "ingredient_groups" nutzen, "ingredients" leer.
-- Jeder Absatz / Abschnitt der Zubereitung = ein eigener Eintrag in "steps".
+- Stehen Menge, Einheit und Zutatenname auf getrennten Zeilen oder in getrennten
+  Spalten (z.B. "g\n250\nMagerquark"), kombiniere sie immer zu einem einzigen
+  String: "250 g Magerquark".  Jede Zutat = genau ein Eintrag im ingredients-Array.
+- Jeden Absatz der Zubereitung als eigenen step-Eintrag ausgeben.  Niemals mehrere
+  Absätze zu einem step zusammenfassen.
+- "Gesamtzeit", "Schwierigkeitsgrad" und ähnliche Metadaten gehören NICHT in steps.
 - Zeitangaben wie "Arbeitszeit ca. 35 Minuten"  → prep_time: 35
 - Zeitangaben wie "Koch-/Backzeit ca. 20 Minuten" → cook_time: 20
 - "Gesamtzeit" und "Schwierigkeitsgrad" werden ignoriert.
@@ -131,21 +139,148 @@ def _ollama_enabled() -> bool:
     return bool(settings.AI_ENDPOINT)
 
 
-def _build_import_result(parsed: dict) -> ImportResult:
-    """Convert a raw LLM-returned dict into a validated ``ImportResult``."""
+# ── Ingredient fragment post-processing ───────────────────────────────────────
+# Small AI models (≤ 7 B) often return ingredient tables as separate strings
+# for amount, unit and name when the PDF source has them in different columns or
+# on different lines.  Examples of broken AI output:
+#   ["g", "250", "Magerquark"]    → should be "250 g Magerquark"
+#   ["TL 2", "Ketchup"]           → should be "2 TL Ketchup"
+#   ["3 Scheibe/n", "Schmelzkäse"] → should be "3 Scheibe/n Schmelzkäse"
+#
+# A "fragment" is a string that carries only the quantitative part of an
+# ingredient (pure unit, pure number, "unit amount", or "amount unit") without
+# the ingredient name.
+
+_UNITS_GROUP = r"(?:g|kg|ml|l|cl|tl|el|tbsp|tsp|cup|oz|lb|prise|stk|stück|scheibe[\w/]*)"
+
+# Matches any string that is only a fragment (no ingredient name).
+_INGREDIENT_FRAGMENT_RE = re.compile(
+    r"^(?:"
+    + _UNITS_GROUP
+    + r"|\d+[\.,]?\d*"  # pure number
+    + r"|" + _UNITS_GROUP + r"\s+\d+[\.,]?\d*"  # unit + number (wrong order)
+    + r"|\d+[\.,]?\d*\s+" + _UNITS_GROUP  # number + unit (correct order)
+    + r")$",
+    re.IGNORECASE,
+)
+
+# Matches "unit amount" so it can be reordered to "amount unit".
+_UNIT_THEN_NUM_RE = re.compile(
+    r"^(" + _UNITS_GROUP + r")\s+(\d+[\.,]?\d*)$", re.IGNORECASE
+)
+
+
+def _normalize_fragment(s: str) -> str:
+    """Reorder 'unit amount' to 'amount unit', e.g. 'g 250' → '250 g'."""
+    m = _UNIT_THEN_NUM_RE.match(s)
+    if m:
+        return f"{m.group(2)} {m.group(1)}"
+    return s
+
+
+def _combine_ingredient_fragments(items: list[str]) -> list[str]:
+    """Merge consecutive unit/amount fragments with the following ingredient name.
+
+    Handles the common small-model output pattern where amount, unit and
+    ingredient name are returned as separate list entries instead of one
+    combined string.
+
+    Examples::
+
+        ["g", "250", "Magerquark"]     → ["250 g Magerquark"]
+        ["TL 2", "Ketchup"]            → ["2 TL Ketchup"]
+        ["3", "Ei(er)"]                → ["3 Ei(er)"]
+        ["Salz und Pfeffer"]           → ["Salz und Pfeffer"]  (unchanged)
+    """
+    result: list[str] = []
+    buffer: list[str] = []  # accumulated raw fragment strings waiting for a name
+
+    for raw in items:
+        s = raw.strip()
+        if not s:
+            continue
+        if _INGREDIENT_FRAGMENT_RE.match(s):
+            # Store raw; normalization (unit/amount reordering) happens at join time.
+            buffer.append(s)
+        else:
+            if buffer:
+                prefix = _normalize_fragment(" ".join(buffer))
+                result.append(f"{prefix} {s}".strip())
+                buffer = []
+            else:
+                result.append(s)
+
+    # Flush any leftover fragment (e.g. ingredient with no following name).
+    if buffer:
+        result.append(_normalize_fragment(" ".join(buffer)))
+
+    return result
+
+
+# Threshold for the merged-step quality check in ``_result_looks_valid``.
+# Steps longer than this (in characters) are inspected for boilerplate content.
+_MERGED_STEP_LENGTH_THRESHOLD = 300
+
+
+def _result_looks_valid(result: ImportResult) -> bool:
+    """Return ``False`` when the AI result has obvious structural problems.
+
+    A ``False`` return causes the caller to discard the AI result and fall
+    back to the heuristic parser, which handles the same text more reliably.
+
+    Checks performed:
+
+    * Title must exist and be at least 3 characters long.
+    * If only one step exists, is very long (> ``_MERGED_STEP_LENGTH_THRESHOLD``
+      chars) **and** contains boilerplate timing / metadata text (Gesamtzeit,
+      Schwierigkeitsgrad, "ca. N Minuten"), the model merged all preparation
+      paragraphs into one block — a clear sign of failure.
+    """
+    if not result.title or len(result.title.strip()) < 3:
+        return False
+
+    if len(result.steps) == 1 and len(result.steps[0]) > _MERGED_STEP_LENGTH_THRESHOLD:
+        merged = result.steps[0]
+        if re.search(
+            r"\bGesamtzeit\b|Schwierigkeitsgrad|\bca\.\s*\d+\s*Min",
+            merged,
+            re.IGNORECASE,
+        ):
+            return False
+
+    return True
+
+
+def _build_import_result(parsed: dict) -> Optional[ImportResult]:
+    """Convert a raw LLM-returned dict into a validated ``ImportResult``.
+
+    Returns ``None`` when the parsed result has obvious structural problems
+    so callers can fall back to the heuristic parser instead.
+    """
     groups_raw = parsed.pop("ingredient_groups", []) or []
     groups = [
         ImportIngredientGroup(
             name=g.get("name", "Zutaten"),
-            ingredients=[str(i) for i in g.get("ingredients", [])],
+            ingredients=_combine_ingredient_fragments(
+                [str(i) for i in g.get("ingredients", [])]
+            ),
         )
         for g in groups_raw
         if isinstance(g, dict)
     ]
     allowed = set(ImportResult.model_fields)
     safe = {k: v for k, v in parsed.items() if k in allowed}
+    # Fix fragmented flat ingredient list as well.
+    if "ingredients" in safe and isinstance(safe["ingredients"], list):
+        safe["ingredients"] = _combine_ingredient_fragments(
+            [str(i) for i in safe["ingredients"]]
+        )
     safe["ingredient_groups"] = groups
-    return ImportResult(**safe)
+    result = ImportResult(**safe)
+    if not _result_looks_valid(result):
+        logger.debug("AI result failed quality check – falling back to heuristic")
+        return None
+    return result
 
 
 # ── Backend 1: local LLM via OpenAI Chat Completions protocol ─────────────────
