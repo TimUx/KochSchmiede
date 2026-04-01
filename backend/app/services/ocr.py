@@ -404,6 +404,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
     _flush_step_buffer()
     _flush_current_group()
 
+    # Deduplication: when ingredient items were accumulated in the flat
+    # `ingredients` list *before* the first group sub-header was encountered
+    # (a common Chefkoch / multi-column PDF artefact where the PDF text stream
+    # places items between the section header "Zutaten für N Portionen:" and
+    # the first group heading "Für den Teig:"), those same items also end up
+    # inside the named group, causing visible duplication in the UI.
+    # Remove any item from `ingredients` that is already covered by a named
+    # group – the grouped representation is more informative.
+    if ingredient_groups:
+        grouped_items = {item for g in ingredient_groups for item in g.ingredients}
+        ingredients = [item for item in ingredients if item not in grouped_items]
+
     return ImportResult(
         title=title or "Importiertes Rezept",
         description=description,
