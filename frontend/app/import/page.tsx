@@ -388,7 +388,7 @@ export default function ImportPage() {
         onChange={(e) => setHandwriting(e.target.checked)}
         className="w-4 h-4 accent-amber-500"
       />
-      Handschriftliches Rezept (verbesserte OCR)
+      Vision KI nutzen (Handschrift, Zeitschrift, komplexe Bilder)
     </label>
   );
 

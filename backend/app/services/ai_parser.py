@@ -139,8 +139,18 @@ def _get_vision_model() -> Optional[str]:
     """Return the model name to use for vision parsing.
 
     When ``LLM_MODEL`` is set explicitly:
-    - Returns it only when ``LLM_VISION`` is ``True`` (or not set, i.e. None).
-    - Returns ``None`` when ``LLM_VISION`` is ``False`` (user opted out).
+    - ``LLM_VISION=True``  → always return the model (user explicitly confirmed
+      vision capability, e.g. a custom GGUF with an unusual name).
+    - ``LLM_VISION=False`` → return ``None`` (user opted out of vision).
+    - ``LLM_VISION=None``  → auto-detect:
+        1. If the model name matches a known vision-capable pattern (e.g.
+           "llava", "vision", "moondream"), return it directly.
+        2. Otherwise the model is assumed to be text-only.  Query Ollama for a
+           dedicated vision model (e.g. ``llava:7b`` pulled alongside a text
+           model such as ``llama3.2``).
+        3. If no dedicated vision model is found either, return ``None`` so
+           ``has_vision_ai()`` reports ``False`` and the pipeline skips the
+           vision step instead of sending an image to a text-only model.
 
     When ``LLM_MODEL`` is empty, queries Ollama for the best available vision
     model.  ``LLM_VISION=false`` can still be used to override auto-detection.
@@ -149,8 +159,22 @@ def _get_vision_model() -> Optional[str]:
         return None  # explicit opt-out
 
     if settings.LLM_MODEL:
-        # Explicit model: use it for vision only when LLM_VISION is not False.
-        return settings.LLM_MODEL
+        if settings.LLM_VISION is True:
+            # User explicitly confirmed this model handles vision.
+            return settings.LLM_MODEL
+
+        # LLM_VISION is None — check whether the model name looks vision-capable.
+        from app.services.ollama_models import _VISION_NAME_PATTERNS
+
+        if any(p.search(settings.LLM_MODEL) for p in _VISION_NAME_PATTERNS):
+            return settings.LLM_MODEL
+
+        # Model name doesn't look vision-capable (e.g. LLM_MODEL=llama3.2).
+        # Try Ollama auto-detection so a dedicated vision model (e.g. llava:7b)
+        # can be used even when LLM_MODEL is locked to a text-only model.
+        from app.services.ollama_models import get_best_vision_model
+
+        return get_best_vision_model()
 
     # Auto-detect: find the best vision-capable model in Ollama.
     from app.services.ollama_models import get_best_vision_model
