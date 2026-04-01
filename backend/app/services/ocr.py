@@ -39,6 +39,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
     raw_lines = [l.strip() for l in text.splitlines()]
 
     title: Optional[str] = None
+    description: Optional[str] = None
     ingredients: list[str] = []
     ingredient_groups: list[ImportIngredientGroup] = []
     steps: list[str] = []
@@ -93,7 +94,29 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # *next* line, e.g. "Arbeitszeit\nca. 35 Minuten".
     arbeitszeit_keyword_re = re.compile(r"^arbeitszeit\s*$", re.IGNORECASE)
     kochzeit_keyword_re = re.compile(r"^(?:koch|back)[-/\w]*zeit\s*$", re.IGNORECASE)
+    # "Gesamtzeit" standalone keyword – its value on the next line is discarded.
+    gesamtzeit_keyword_re = re.compile(r"^gesamtzeit\s*$", re.IGNORECASE)
     time_value_re = re.compile(r"(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE)
+
+    # Patterns for column-based PDF ingredient tables where amounts, units and
+    # names may appear on separate lines or in reversed order.
+    # The unit group is shared across all three patterns to ensure consistency.
+    _UNITS = r"(?:g|kg|ml|l|cl|tl|el|tbsp|tsp|cup|oz|lb|prise|stk|stück|scheibe[\w/]*)"
+    # Matches a whole line that is only an amount (with optional unit).
+    pure_amount_re = re.compile(
+        r"^\d+[\.,]?\d*\s*" + _UNITS + r"?$",
+        re.IGNORECASE,
+    )
+    # Matches a whole line that is only a unit abbreviation (no number).
+    pure_unit_re = re.compile(
+        r"^" + _UNITS + r"$",
+        re.IGNORECASE,
+    )
+    # Matches a line with unit *before* the amount, e.g. "g 250" (reversed columns).
+    unit_then_amount_re = re.compile(
+        r"^" + _UNITS + r"\s+\d+[\.,]?\d*$",
+        re.IGNORECASE,
+    )
 
     in_ingredients = False
     in_steps = False
@@ -104,6 +127,12 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # the very next non-blank line.
     pending_prep_time = False
     pending_cook_time = False
+    # Set after a standalone "Gesamtzeit" keyword; causes the next time-value
+    # line to be discarded (KochSchmiede only uses prep_time and cook_time).
+    pending_total_time = False
+    # Amount/unit prefix buffered from the previous line when the ingredient
+    # table spreads over multiple lines (e.g. "250 g" then "Magerquark").
+    pending_ingredient_prefix: Optional[str] = None
 
     ingredients_headers = {"zutaten", "ingredients", "zutat", "ingredient"}
     steps_headers = {"zubereitung", "anleitung", "instructions", "steps", "preparation", "method"}
@@ -140,10 +169,14 @@ def _parse_ocr_text(text: str) -> ImportResult:
     for line in raw_lines:
         # ── Blank line: paragraph separator ──────────────────────────────────
         if not line:
+            pending_total_time = False
             if in_steps:
                 _flush_step_buffer()
             pending_prep_time = False
             pending_cook_time = False
+            # pending_ingredient_prefix is intentionally preserved across blank
+            # lines within the ingredient section: "250 g\n\nMagerquark" must
+            # still be combined into one ingredient string.
             continue
 
         lower = line.lower().rstrip(":").strip()
@@ -161,6 +194,12 @@ def _parse_ocr_text(text: str) -> ImportResult:
             if m and cook_time is None:
                 cook_time = int(m.group(1))
                 continue
+
+        # ── Discard value line that follows a standalone "Gesamtzeit" keyword ──
+        if pending_total_time:
+            pending_total_time = False
+            if time_value_re.search(line):
+                continue  # discard total-time value (e.g. "ca. 55 Minuten")
 
         # ── Skip known noise / boilerplate ───────────────────────────────────
         if noise_re.match(line):
@@ -185,6 +224,9 @@ def _parse_ocr_text(text: str) -> ImportResult:
         if cook_time is None and kochzeit_keyword_re.match(line):
             pending_cook_time = True
             continue
+        if gesamtzeit_keyword_re.match(line):
+            pending_total_time = True
+            continue
 
         # ── Ingredient group headers (checked BEFORE the generic section header
         #    so "Zutaten für den Teig:" is treated as a named group, not merely
@@ -195,6 +237,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
             in_steps = False
             _flush_current_group()
             current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
+            pending_ingredient_prefix = None
             continue
 
         # ── Section: Ingredients ─────────────────────────────────────────────
@@ -212,6 +255,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
             _flush_step_buffer()
             in_ingredients = True
             in_steps = False
+            pending_ingredient_prefix = None
             continue
 
         # ── Section: Steps / Preparation ─────────────────────────────────────
@@ -222,13 +266,43 @@ def _parse_ocr_text(text: str) -> ImportResult:
             in_ingredients = False
             continue
 
-        # ── Title: first meaningful non-boilerplate, non-amount line ─────────
-        if not title and len(line) > 3 and not amount_re.search(line) and not line.isupper():
-            title = line
-            continue
+        # ── Title / Description: first two meaningful pre-section lines ─────────
+        # Only extract title and description from lines that appear before we
+        # enter the ingredient or step sections.  This prevents ingredient names
+        # (e.g. "Magerquark") from being mistaken for the recipe title when the
+        # PDF content stream places the ingredient table before the title text.
+        if not in_ingredients and not in_steps:
+            is_title_candidate = (
+                len(line) > 3 and not amount_re.search(line) and not line.isupper()
+            )
+            if not title and is_title_candidate:
+                title = line
+                continue
+            if title and description is None and is_title_candidate:
+                description = line
+                continue
 
         # ── Ingredient section content ────────────────────────────────────────
         if in_ingredients:
+            stripped = line.strip()
+
+            # Handle pure unit abbreviations (e.g. "g", "ml") that appear as
+            # separate column entries in column-based PDF ingredient tables.
+            if pure_unit_re.match(stripped):
+                if pending_ingredient_prefix is None:
+                    pending_ingredient_prefix = stripped
+                else:
+                    pending_ingredient_prefix += " " + stripped
+                continue
+
+            # Handle "unit amount" reversed lines (e.g. "g 250") that arise
+            # when a PDF places the unit column to the left of the amount column.
+            if unit_then_amount_re.match(stripped):
+                parts = stripped.split(None, 1)
+                reordered = f"{parts[1]} {parts[0]}" if len(parts) == 2 else stripped
+                pending_ingredient_prefix = reordered
+                continue
+
             # Short lines starting with a lowercase letter are recipe taglines
             # or descriptions that slipped into the ingredient section (common
             # in single-page PDFs with multi-column layouts) – discard them.
@@ -241,6 +315,23 @@ def _parse_ocr_text(text: str) -> ImportResult:
             # ingredient.
             if title and line.lower() == title.lower():
                 continue
+
+            # Handle pure amount/unit lines (e.g. "250", "250 g", "3 Scheibe/n")
+            # that represent the amount column of a column-based PDF table.
+            if pure_amount_re.match(stripped):
+                if pending_ingredient_prefix is not None and pure_unit_re.match(
+                    pending_ingredient_prefix.strip()
+                ):
+                    # Pending is a bare unit → combine as "amount unit" (e.g. "250 g")
+                    pending_ingredient_prefix = f"{stripped} {pending_ingredient_prefix.strip()}"
+                else:
+                    pending_ingredient_prefix = stripped
+                continue
+
+            # Combine any buffered amount/unit prefix with this ingredient name.
+            if pending_ingredient_prefix is not None:
+                line = f"{pending_ingredient_prefix.strip()} {line}".strip()
+                pending_ingredient_prefix = None
 
             # Transition to steps when:
             # - A numbered step line (e.g. "1. Mix flour")
@@ -257,6 +348,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 _flush_current_group()
                 in_steps = True
                 in_ingredients = False
+                pending_ingredient_prefix = None
             else:
                 if current_group is not None:
                     current_group["ingredients"].append(line)
@@ -267,13 +359,23 @@ def _parse_ocr_text(text: str) -> ImportResult:
         # ── Steps content ─────────────────────────────────────────────────────
         if in_steps:
             step_buffer.append(line)
+            # Auto-flush after sentence-terminal lines so that recipes where
+            # paragraphs are not separated by blank lines still produce multiple
+            # steps (each paragraph/sentence group becomes its own step).
+            if line and line[-1] in ".!?":
+                _flush_step_buffer()
             continue
 
         # ── Fallback heuristics (unclassified lines) ──────────────────────────
         if amount_re.search(line) and len(line) < 80:
             ingredients.append(line)
         elif step_re.match(line) or len(line) > 50:
-            steps.append(re.sub(r"^\d+[\.\):\s]+", "", line).strip())
+            # Enter step mode so subsequent short step lines are captured too.
+            in_steps = True
+            cleaned = re.sub(r"^\d+[\.\):\s]+", "", line).strip()
+            step_buffer.append(cleaned)
+            if cleaned and cleaned[-1] in ".!?":
+                _flush_step_buffer()
 
     # Flush any remaining step paragraph and last open ingredient group.
     _flush_step_buffer()
@@ -281,6 +383,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
 
     return ImportResult(
         title=title or "Importiertes Rezept",
+        description=description,
         ingredients=ingredients[:30],
         ingredient_groups=ingredient_groups,
         steps=steps[:20],
@@ -403,8 +506,60 @@ def extract_pdf_text_and_image(
 
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     full_text = ""
+    # Threshold: a text block is considered "full-width" (e.g. the recipe title
+    # or a divider line) when it spans more than this fraction of the page width.
+    # Chosen so that typical two-column recipe layouts (≈45 % each) are split
+    # correctly while a wide title block (≈60–100 %) is kept together.
+    _FULL_WIDTH_THRESHOLD = 0.55
     for page in doc:
-        full_text += page.get_text()
+        # Use column-aware block extraction sorted by visual reading order.
+        # For two-column recipe PDFs (title + instructions on the left,
+        # ingredients on the right) we read full-width blocks first, then the
+        # left column, then the right column.  This ensures the recipe title
+        # and instructions appear before the ingredient list in the extracted
+        # text, giving the heuristic parser the correct context to identify
+        # the title and split steps properly.
+        #
+        # PyMuPDF block tuple layout (get_text("blocks")):
+        #   (x0, y0, x1, y1, text, block_no, block_type)
+        # block_type: 0 = text, 1 = image
+        rect = page.rect
+        page_mid_x = (rect.x0 + rect.x1) / 2
+        full_blocks: list[tuple[float, str]] = []
+        left_blocks: list[tuple[float, str]] = []
+        right_blocks: list[tuple[float, str]] = []
+
+        for block in page.get_text("blocks"):
+            bx0, by0, bx1, _by1, block_text, _block_no, block_type = block
+            if block_type != 0:  # skip non-text (image) blocks
+                continue
+            text = block_text.strip()
+            if not text:
+                continue
+            bw = bx1 - bx0
+            pw = rect.x1 - rect.x0
+            if pw > 0 and bw / pw > _FULL_WIDTH_THRESHOLD:
+                # Spans more than 55 % of page width → full-width element
+                # (e.g. the recipe title or a horizontal separator).
+                full_blocks.append((by0, text))
+            elif bx0 < page_mid_x:
+                left_blocks.append((by0, text))   # instructions column
+            else:
+                right_blocks.append((by0, text))  # ingredients column
+
+        # Each group is sorted by vertical position; groups are concatenated
+        # in the order: full-width → left column → right column.
+        ordered_parts = (
+            [t for _, t in sorted(full_blocks)]
+            + [t for _, t in sorted(left_blocks)]
+            + [t for _, t in sorted(right_blocks)]
+        )
+        if ordered_parts:
+            # Separate blocks with a blank line so paragraph boundaries are
+            # preserved for the step-splitting logic in the heuristic parser.
+            full_text += "\n\n".join(ordered_parts) + "\n\n"
+        else:
+            full_text += page.get_text()
 
     if not full_text.strip():
         # Image-based PDF – render each page and OCR
