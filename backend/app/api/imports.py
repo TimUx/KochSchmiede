@@ -381,6 +381,8 @@ async def import_from_files(
 
     all_texts: list[str] = []
     all_image_urls: list[str | None] = []
+    # Parallel list: raw image bytes + MIME type for image files, None for PDFs.
+    image_data: list[tuple[bytes, str] | None] = []
 
     for file in files:
         content = await file.read()
@@ -393,9 +395,11 @@ async def import_from_files(
             raw_text, img_url = extract_pdf_text_and_image(content, handwriting)
             all_texts.append(raw_text)
             all_image_urls.append(img_url)
+            image_data.append(None)
         elif _is_image(file):
             all_texts.append(extract_image_text(content, handwriting))
             all_image_urls.append(None)
+            image_data.append((content, file.content_type or "image/jpeg"))
         else:
             logger.warning(
                 "Skipped unsupported file '%s' (content-type: %s) in multi-file import.",
@@ -406,13 +410,51 @@ async def import_from_files(
     if not any(t.strip() for t in all_texts):
         raise HTTPException(status_code=422, detail="No processable content found")
 
-    combined_text = "\n\n".join(t for t in all_texts if t.strip())
     first_image_url = next((u for u in all_image_urls if u), None)
+    result: ImportResult | None = None
 
-    # Try AI on the full combined text (one pass → better context for the LLM)
-    result = parse_with_ai(combined_text)
+    # Determine whether any image page needs vision processing.
+    # Vision is used when handwriting mode is active OR when any image file
+    # scored below the OCR quality threshold (magazine scans, complex layouts).
+    use_vision_for_images = handwriting or any(
+        _assess_ocr_quality(t) < _OCR_QUALITY_THRESHOLD
+        for t, img in zip(all_texts, image_data)
+        if img is not None
+    )
+
+    # Vision path: process each file individually and merge the results.
+    # This gives significantly better accuracy for scanned magazines, handwritten
+    # recipe cards, and other complex multi-page layouts where combined garbled
+    # OCR text would mislead the text AI.
+    if use_vision_for_images and has_vision_ai():
+        page_results: list[ImportResult] = []
+        for t, img in zip(all_texts, image_data):
+            if img is not None:
+                img_content, mime = img
+                pr = parse_image_with_ai(img_content, mime_type=mime)
+                if pr is None and t.strip():
+                    pr = parse_with_ai(t)
+                if pr is None and t.strip():
+                    pr = parse_ocr_text(t)
+            elif t.strip():
+                pr = parse_with_ai(t) or parse_ocr_text(t)
+            else:
+                pr = None
+            if pr is not None:
+                page_results.append(pr)
+        if page_results:
+            result = merge_import_results(page_results)
+            logger.debug(
+                "Multi-file parsed via vision AI (merged %d pages)", len(page_results)
+            )
+
+    # Text AI on combined OCR text (fast path for clean documents / vision miss)
     if result is None:
-        # Heuristic: parse each page separately, then merge
+        combined_text = "\n\n".join(t for t in all_texts if t.strip())
+        result = parse_with_ai(combined_text)
+
+    # Heuristic fallback: parse each page separately and merge
+    if result is None:
         page_results = [parse_ocr_text(t) for t in all_texts if t.strip()]
         if not page_results:
             raise HTTPException(status_code=422, detail="No processable files found")
