@@ -27,15 +27,18 @@ services:
       # AI parsing backends – free / local only (see .env.example for setup)
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_MODEL: ${LLM_MODEL:-llama3.2}
-      # Set LLM_VISION=false when using a text-only model (e.g. llama3.2).
-      # The pipeline then uses Tesseract OCR on images and sends the extracted
-      # text to the LLM – no vision model needed, lower RAM/VRAM usage.
-      LLM_VISION: ${LLM_VISION:-true}
+      # LLM_MODEL: leave empty for automatic model selection from Ollama.
+      # Set explicitly when using LM Studio (only one model loaded at a time).
+      LLM_MODEL: ${LLM_MODEL:-}
+      # LLM_VISION: leave unset for automatic detection (recommended).
+      # Set to false to force text-only mode (Tesseract OCR + text LLM).
+      LLM_VISION: ${LLM_VISION:-}
       AI_ENDPOINT: ${AI_ENDPOINT:-}
       AI_MODEL: ${AI_MODEL:-llama3.2}
       # Seconds to wait per LLM call; increase on slow CPU-only hardware
       AI_TIMEOUT: ${AI_TIMEOUT:-300}
+      # Set to false to disable automatic Ollama model pulling
+      OLLAMA_AUTO_PULL: ${OLLAMA_AUTO_PULL:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,15 +73,15 @@ services:
   # Start with:  docker compose --profile ollama up
   # Then set in .env:
   #   LLM_BASE_URL=http://ollama:11434/v1
-  #   LLM_MODEL=llama3.2-vision      # vision model (best quality)
   #
-  # Or use a smaller text-only model with Tesseract OCR (lower resource usage):
-  #   LLM_MODEL=llama3.2
-  #   LLM_VISION=false               # skip vision step, use Tesseract OCR
+  # Models are pulled automatically on first import (OLLAMA_AUTO_PULL=true).
+  # The pipeline auto-selects the best available model per request:
+  #   • fastest/smallest text model for clean PDFs and structured images
+  #   • best vision model for complex layouts, magazines, handwriting
   #
-  # Pull a model (first time):
-  #   docker compose exec ollama ollama pull llama3.2-vision
-  #   docker compose exec ollama ollama pull llama3.2
+  # To pull models manually instead:
+  #   docker compose exec ollama ollama pull llama3.2    # text model
+  #   docker compose exec ollama ollama pull llava:7b    # vision model
   ollama:
     image: ollama/ollama:latest
     profiles: [ollama]

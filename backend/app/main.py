@@ -1,4 +1,5 @@
 import os
+import threading
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -100,6 +101,27 @@ app.mount("/api/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "KochSchmiede API"}
+
+
+# ── Background: Ollama model auto-pull ───────────────────────────────────────
+# Trigger once at startup in a daemon thread so it does not block the server.
+# The thread queries Ollama for available models and pulls the recommended
+# pair (llama3.2 + llava:7b) if neither a text nor a vision model is present.
+def _startup_ensure_models() -> None:
+    try:
+        from app.services.ollama_models import ensure_models_available
+
+        ensure_models_available()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Ollama model auto-pull startup task failed: %s", exc
+        )
+
+
+_t = threading.Thread(target=_startup_ensure_models, daemon=True, name="ollama-autopull")
+_t.start()
 
 
 @app.get("/api/setup/status")

@@ -9,53 +9,35 @@ Priority order for parsing
    * **Ollama** – start the bundled service with
      ``docker compose --profile ollama up``, then set
      ``LLM_BASE_URL=http://ollama:11434/v1``.
-     Pull a vision model for best results:
-     ``docker compose exec ollama ollama pull llama3.2-vision``
+
+     The pipeline automatically discovers all loaded Ollama models and selects:
+       – the fastest/smallest available **text model** for clean PDF/text input
+       – the best available **vision model** for complex images / magazine scans
+
+     Models are auto-pulled on first use when ``OLLAMA_AUTO_PULL=true`` (the
+     default): a lightweight text model (``llama3.2``) and a vision model
+     (``llava:7b``) are downloaded if none are already present.
 
    * **LM Studio** – free desktop app at https://lmstudio.ai.
-     Start the local server and set
-     ``LLM_BASE_URL=http://host.docker.internal:1234/v1``.
+     Start the local server, load a model, and set
+     ``LLM_BASE_URL=http://host.docker.internal:1234/v1``
+     ``LLM_MODEL=your-loaded-model-name``  (required for LM Studio).
 
-   Vision-capable models (``llama3.2-vision``, ``llava``, ``minicpm-v``, …)
-   parse recipe *images* directly — no OCR step required, handles tables /
-   columns / grids perfectly.
-
-   **Text-only model (Tesseract + LLM, resource-efficient)**:
-   Set ``LLM_VISION=false`` in ``.env`` when using a text-only model such as
-   ``llama3.2``.  The pipeline then runs Tesseract OCR on the image first and
-   sends the extracted text to the LLM — no vision model needed.  This
-   requires significantly less RAM/VRAM and is ideal for CPU-only or
-   low-memory servers.
+   **Model override**: set ``LLM_MODEL=<name>`` in ``.env`` to lock a
+   specific model instead of relying on auto-selection.
 
 2. **Ollama native ``/api/generate``** (``AI_ENDPOINT``) – text-only,
    kept for backwards compatibility.
 
 3. **Heuristic parser** – always available, zero configuration.
 
-Quick-start (Ollama, vision model, recommended for best quality)::
+Quick-start (Ollama, fully automatic)::
 
     # 1. Start stack with Ollama included
     docker compose --profile ollama up -d
 
-    # 2. Pull a vision model (best quality)
-    docker compose exec ollama ollama pull llama3.2-vision
-
-    # 3. Add to .env
+    # 2. Add to .env (models are pulled automatically on first import)
     LLM_BASE_URL=http://ollama:11434/v1
-    LLM_MODEL=llama3.2-vision
-
-Quick-start (Ollama, text-only model + Tesseract OCR, resource-efficient)::
-
-    # 1. Start stack with Ollama included
-    docker compose --profile ollama up -d
-
-    # 2. Pull a smaller text-only model
-    docker compose exec ollama ollama pull llama3.2
-
-    # 3. Add to .env
-    LLM_BASE_URL=http://ollama:11434/v1
-    LLM_MODEL=llama3.2
-    LLM_VISION=false    # skip vision step → use Tesseract OCR instead
 
 Quick-start (LM Studio)::
 
@@ -137,6 +119,43 @@ def _llm_api_enabled() -> bool:
 
 def _ollama_enabled() -> bool:
     return bool(settings.AI_ENDPOINT)
+
+
+def _get_text_model() -> Optional[str]:
+    """Return the model name to use for text parsing.
+
+    Returns the explicit ``LLM_MODEL`` setting when set, otherwise queries
+    Ollama for the best available text model.  Returns ``None`` when no model
+    is available.
+    """
+    if settings.LLM_MODEL:
+        return settings.LLM_MODEL
+    from app.services.ollama_models import get_best_text_model
+
+    return get_best_text_model()
+
+
+def _get_vision_model() -> Optional[str]:
+    """Return the model name to use for vision parsing.
+
+    When ``LLM_MODEL`` is set explicitly:
+    - Returns it only when ``LLM_VISION`` is ``True`` (or not set, i.e. None).
+    - Returns ``None`` when ``LLM_VISION`` is ``False`` (user opted out).
+
+    When ``LLM_MODEL`` is empty, queries Ollama for the best available vision
+    model.  ``LLM_VISION=false`` can still be used to override auto-detection.
+    """
+    if settings.LLM_VISION is False:
+        return None  # explicit opt-out
+
+    if settings.LLM_MODEL:
+        # Explicit model: use it for vision only when LLM_VISION is not False.
+        return settings.LLM_MODEL
+
+    # Auto-detect: find the best vision-capable model in Ollama.
+    from app.services.ollama_models import get_best_vision_model
+
+    return get_best_vision_model()
 
 
 # ── Ingredient fragment post-processing ───────────────────────────────────────
@@ -297,9 +316,19 @@ def _build_import_result(parsed: dict) -> Optional[ImportResult]:
 # ── Backend 1: local LLM via OpenAI Chat Completions protocol ─────────────────
 
 
-def _call_chat_completions(messages: list[dict]) -> Optional[ImportResult]:
-    """POST to a local ``/chat/completions`` endpoint (Ollama /v1, LM Studio, …)."""
+def _call_chat_completions(
+    messages: list[dict], model: Optional[str] = None
+) -> Optional[ImportResult]:
+    """POST to a local ``/chat/completions`` endpoint (Ollama /v1, LM Studio, …).
+
+    *model* overrides the auto-selected model for this call.  When omitted the
+    best available text model is used (as returned by ``_get_text_model()``).
+    """
     if not _llm_api_enabled():
+        return None
+    resolved_model = model or _get_text_model()
+    if not resolved_model:
+        logger.debug("No text model available — skipping chat completions")
         return None
     try:
         import httpx
@@ -312,7 +341,7 @@ def _call_chat_completions(messages: list[dict]) -> Optional[ImportResult]:
         resp = httpx.post(
             f"{base}/chat/completions",
             json={
-                "model": settings.LLM_MODEL,
+                "model": resolved_model,
                 "messages": messages,
                 "response_format": {"type": "json_object"},
                 "temperature": 0.1,
@@ -386,7 +415,8 @@ def parse_with_ai(text: str, skip_chat_completions: bool = False) -> Optional[Im
                 "content": f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
             },
         ]
-        result = _call_chat_completions(messages)
+        # Use the best text model (auto-selected or overridden via LLM_MODEL).
+        result = _call_chat_completions(messages, model=_get_text_model())
         if result:
             return result
 
@@ -400,18 +430,22 @@ def parse_with_ai(text: str, skip_chat_completions: bool = False) -> Optional[Im
 def parse_image_with_ai(
     image_bytes: bytes, mime_type: str = "image/jpeg"
 ) -> Optional[ImportResult]:
-    """Parse a recipe image directly using a vision-capable local LLM.
+    """Parse a recipe image directly using the best available vision-capable model.
 
-    Sends the raw image to the vision model, bypassing Tesseract OCR
-    entirely.  This yields significantly better results for complex
-    layouts, tables, multi-column PDFs, and handwritten recipes.
+    Sends the raw image to a vision model (auto-selected from Ollama or
+    overridden via ``LLM_MODEL``), bypassing Tesseract OCR entirely.  This
+    yields significantly better results for complex layouts, tables,
+    multi-column magazine pages, and handwritten recipes.
 
-    Requires a local LLM server (``LLM_BASE_URL``) running a vision model
-    such as ``llama3.2-vision``, ``llava``, or ``minicpm-v``.
-
-    Returns ``None`` when no vision AI is configured or the call fails.
+    Returns ``None`` when no vision model is configured/available or the
+    call fails.
     """
     if not _llm_api_enabled():
+        return None
+
+    vision_model = _get_vision_model()
+    if not vision_model:
+        logger.debug("No vision model available — skipping vision AI step")
         return None
 
     b64 = base64.b64encode(image_bytes).decode()
@@ -434,25 +468,26 @@ def parse_image_with_ai(
             ],
         },
     ]
-    return _call_chat_completions(messages)
+    logger.debug("Using vision model '%s' for image parsing", vision_model)
+    return _call_chat_completions(messages, model=vision_model)
 
 
 def has_text_ai() -> bool:
-    """Return ``True`` if any text-based AI backend is configured."""
-    return _llm_api_enabled() or _ollama_enabled()
+    """Return ``True`` if any text-based AI backend is configured and has a model."""
+    if _ollama_enabled():
+        return True
+    if not _llm_api_enabled():
+        return False
+    return _get_text_model() is not None
 
 
 def has_vision_ai() -> bool:
-    """Return ``True`` if a vision-capable local LLM is configured.
+    """Return ``True`` if a vision-capable model is available.
 
-    Vision AI sends images directly to the model (no OCR needed).
-    Requires ``LLM_BASE_URL`` pointing to a server running a vision model
-    (e.g. ``llama3.2-vision``, ``llava``, ``minicpm-v``) **and**
-    ``LLM_VISION=true`` (the default).
-
-    Set ``LLM_VISION=false`` in ``.env`` when using a text-only model
-    (e.g. ``llama3.2``): the pipeline will then run Tesseract OCR on the
-    image first and send the extracted text to the LLM instead.  This
-    requires significantly less RAM/VRAM and is ideal for CPU-only servers.
+    Auto-detects by querying Ollama for vision-capable models when
+    ``LLM_MODEL`` is not set explicitly.  ``LLM_VISION=false`` overrides this
+    and always returns ``False`` regardless of available models.
     """
-    return _llm_api_enabled() and settings.LLM_VISION
+    if not _llm_api_enabled():
+        return False
+    return _get_vision_model() is not None

@@ -49,6 +49,11 @@ _FRACTION_MAP: dict[str, str] = {
     "⅞": "7/8",
 }
 
+# Pre-compiled regex for fraction substitution: faster than iterating
+# the map and calling str.replace() for each entry on every parse call.
+_FRACTION_RE = re.compile("|".join(re.escape(k) for k in _FRACTION_MAP))
+_FRACTION_SUB = lambda m: _FRACTION_MAP[m.group(0)]  # noqa: E731
+
 
 def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
@@ -88,8 +93,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
     """Parse raw OCR / PDF text into structured recipe data using heuristics."""
     # Normalise unicode fraction characters to ASCII so that amount_re and
     # ingredient parsers can handle them uniformly (see _FRACTION_MAP).
-    for _frac, _asc in _FRACTION_MAP.items():
-        text = text.replace(_frac, _asc)
+    text = _FRACTION_RE.sub(_FRACTION_SUB, text)
 
     # Preserve blank lines so they can serve as paragraph separators in the
     # steps section; only strip leading/trailing whitespace per line.
