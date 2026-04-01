@@ -412,9 +412,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # inside the named group, causing visible duplication in the UI.
     # Remove any item from `ingredients` that is already covered by a named
     # group – the grouped representation is more informative.
+    # Any items that remain in the flat list after deduplication (i.e. items
+    # that appeared in the general overview section but not in any named
+    # sub-group text block) are appended to the last named group.  This
+    # handles the common Chefkoch PDF pattern where the final group's items
+    # (e.g. "Salat", "Tomate(n)") appear in the general flat list but are
+    # omitted from the last sub-group's text block due to PDF layout quirks.
     if ingredient_groups:
         grouped_items = {item for g in ingredient_groups for item in g.ingredients}
-        ingredients = [item for item in ingredients if item not in grouped_items]
+        remaining = [item for item in ingredients if item not in grouped_items]
+        if remaining:
+            ingredient_groups[-1].ingredients.extend(remaining)
+        ingredients = []
 
     return ImportResult(
         title=title or "Importiertes Rezept",
