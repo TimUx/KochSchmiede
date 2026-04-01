@@ -84,6 +84,18 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
 # ─── Recipe CRUD ──────────────────────────────────────────────────────────────
 
 
+@router.get("/tags", response_model=list[str])
+def list_tags(
+    db: Session = Depends(get_db),
+    current_user=Depends(_get_optional_user),
+):
+    site_settings = get_settings(db)
+    if site_settings.site_mode != "public" and not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    tags = db.query(Tag).order_by(Tag.name).all()
+    return [t.name for t in tags]
+
+
 @router.get("", response_model=list[RecipeOut])
 def list_recipes(
     q: Optional[str] = Query(None, description="Search query"),

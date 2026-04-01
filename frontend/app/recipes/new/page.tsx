@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import IngredientGroupEditor, {
@@ -45,9 +45,20 @@ export default function NewRecipePage() {
   const [steps, setSteps] = useState([""]);
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [allTags, setAllTags] = useState<string[]>([]);
 
-  const addTag = () => {
-    const t = tagInput.trim();
+  useEffect(() => {
+    apiFetch("/api/tags")
+      .then((data: string[]) => setAllTags(data))
+      .catch(() => {/* ignore – suggestions are optional */});
+  }, []);
+
+  const tagSuggestions = allTags.filter(
+    (t) => t.toLowerCase().includes(tagInput.toLowerCase()) && !tags.includes(t)
+  );
+
+  const addTag = (name?: string) => {
+    const t = (name ?? tagInput).trim();
     if (t && !tags.includes(t)) setTags([...tags, t]);
     setTagInput("");
   };
@@ -222,21 +233,37 @@ export default function NewRecipePage() {
                 </span>
               ))}
             </div>
-            <div className="flex gap-2">
-              <input
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                placeholder="Kategorie eingeben und Enter drücken…"
-                className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white"
-              />
-              <button
-                type="button"
-                onClick={addTag}
-                className="px-3 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium"
-              >
-                <Plus size={16} />
-              </button>
+            <div className="relative">
+              <div className="flex gap-2">
+                <input
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                  placeholder="Kategorie eingeben und Enter drücken…"
+                  className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => addTag()}
+                  className="px-3 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+              {tagInput && tagSuggestions.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
+                  {tagSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); addTag(s); }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20 text-zinc-700 dark:text-zinc-300 transition"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
