@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import RecipeCard from "@/components/RecipeCard";
 import { Search, SlidersHorizontal, Loader2, ChefHat } from "lucide-react";
@@ -21,6 +21,7 @@ interface ApiRecipe {
 
 function RecipesContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [allRecipes, setAllRecipes] = useState<ApiRecipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +43,10 @@ function RecipesContent() {
         if (token) headers["Authorization"] = `Bearer ${token}`;
 
         const res = await fetch(`${API}/api/recipes/`, { headers });
+        if (res.status === 401) {
+          router.replace("/login");
+          return;
+        }
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.detail ?? "Fehler beim Laden der Rezepte");
@@ -54,7 +59,7 @@ function RecipesContent() {
       }
     };
     fetchRecipes();
-  }, []);
+  }, [router]);
 
   // Derive unique sorted tags from all recipes for the category strip
   const allTags = useMemo(
