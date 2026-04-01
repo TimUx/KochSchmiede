@@ -155,6 +155,27 @@ def _parse_ocr_text(text: str) -> ImportResult:
             steps.append(combined)
         step_buffer = []
 
+    def _is_sentence_end(s: str) -> bool:
+        """Return True only when *s* ends at a real sentence boundary.
+
+        Avoids flushing the step buffer mid-sentence when a line ends with a
+        common German abbreviation that carries a period (e.g. "ca.", "z.B.",
+        "bzw.", "etc.").  The heuristic: if the last token (word ending in '.')
+        is 4 characters or shorter, treat it as an abbreviation and do NOT
+        flush.  Real sentence-ending words ("lassen.", "backen.", "verteilen.")
+        are typically longer.
+        """
+        if not s:
+            return False
+        if s[-1] in "!?":
+            return True
+        if s[-1] != ".":
+            return False
+        # Split off the last whitespace-separated token.
+        last_token = s.rsplit(None, 1)[-1] if s.strip() else ""
+        # Abbreviations are short (≤ 4 chars incl. the dot): ca., z.B., bzw., etc.
+        return len(last_token) > 4
+
     def _flush_current_group() -> None:
         nonlocal current_group
         if current_group is not None:
@@ -362,7 +383,9 @@ def _parse_ocr_text(text: str) -> ImportResult:
             # Auto-flush after sentence-terminal lines so that recipes where
             # paragraphs are not separated by blank lines still produce multiple
             # steps (each paragraph/sentence group becomes its own step).
-            if line and line[-1] in ".!?":
+            # Uses _is_sentence_end to avoid splitting on mid-sentence
+            # abbreviations like "ca.", "z.B.", "bzw.".
+            if _is_sentence_end(line):
                 _flush_step_buffer()
             continue
 
@@ -374,7 +397,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
             in_steps = True
             cleaned = re.sub(r"^\d+[\.\):\s]+", "", line).strip()
             step_buffer.append(cleaned)
-            if cleaned and cleaned[-1] in ".!?":
+            if _is_sentence_end(cleaned):
                 _flush_step_buffer()
 
     # Flush any remaining step paragraph and last open ingredient group.
