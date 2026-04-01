@@ -1,4 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Agent } from "undici";
+
+// Node.js built-in fetch is powered by undici, which enforces its own
+// bodyTimeout / headersTimeout independently of the AbortController.
+// The defaults are 300,000 ms (5 minutes), so requests that take longer
+// (e.g. AI inference on CPU-only hardware) silently fail with "fetch failed"
+// and produce a spurious 502 before our 10-minute AbortController fires.
+// Using a custom Agent with higher timeouts prevents that.
+const PROXY_TIMEOUT_MS = 660_000; // 11 min – must exceed AbortController timeout (10 min)
+const backendAgent = new Agent({
+  bodyTimeout: PROXY_TIMEOUT_MS,
+  headersTimeout: PROXY_TIMEOUT_MS,
+  connectTimeout: 10_000,
+});
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 // Forwarding them can confuse the upstream server or cause undici (Node.js
@@ -67,7 +81,13 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
 
     let backendRes: Response;
     try {
-      backendRes = await fetch(url, { ...init, signal: controller.signal });
+      // `dispatcher` is a Node.js/undici extension to the WhatWG RequestInit
+      // type.  The cast makes the intent explicit while avoiding a bare `any`.
+      backendRes = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+        dispatcher: backendAgent,
+      } as RequestInit & { dispatcher: Agent });
     } finally {
       clearTimeout(timeoutId);
     }

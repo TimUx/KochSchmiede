@@ -20,12 +20,19 @@ Priority order for parsing
    parse recipe *images* directly — no OCR step required, handles tables /
    columns / grids perfectly.
 
+   **Text-only model (Tesseract + LLM, resource-efficient)**:
+   Set ``LLM_VISION=false`` in ``.env`` when using a text-only model such as
+   ``llama3.2``.  The pipeline then runs Tesseract OCR on the image first and
+   sends the extracted text to the LLM — no vision model needed.  This
+   requires significantly less RAM/VRAM and is ideal for CPU-only or
+   low-memory servers.
+
 2. **Ollama native ``/api/generate``** (``AI_ENDPOINT``) – text-only,
    kept for backwards compatibility.
 
 3. **Heuristic parser** – always available, zero configuration.
 
-Quick-start (Ollama, recommended)::
+Quick-start (Ollama, vision model, recommended for best quality)::
 
     # 1. Start stack with Ollama included
     docker compose --profile ollama up -d
@@ -36,6 +43,19 @@ Quick-start (Ollama, recommended)::
     # 3. Add to .env
     LLM_BASE_URL=http://ollama:11434/v1
     LLM_MODEL=llama3.2-vision
+
+Quick-start (Ollama, text-only model + Tesseract OCR, resource-efficient)::
+
+    # 1. Start stack with Ollama included
+    docker compose --profile ollama up -d
+
+    # 2. Pull a smaller text-only model
+    docker compose exec ollama ollama pull llama3.2
+
+    # 3. Add to .env
+    LLM_BASE_URL=http://ollama:11434/v1
+    LLM_MODEL=llama3.2
+    LLM_VISION=false    # skip vision step → use Tesseract OCR instead
 
 Quick-start (LM Studio)::
 
@@ -281,6 +301,12 @@ def has_vision_ai() -> bool:
 
     Vision AI sends images directly to the model (no OCR needed).
     Requires ``LLM_BASE_URL`` pointing to a server running a vision model
-    (e.g. ``llama3.2-vision``, ``llava``, ``minicpm-v``).
+    (e.g. ``llama3.2-vision``, ``llava``, ``minicpm-v``) **and**
+    ``LLM_VISION=true`` (the default).
+
+    Set ``LLM_VISION=false`` in ``.env`` when using a text-only model
+    (e.g. ``llama3.2``): the pipeline will then run Tesseract OCR on the
+    image first and send the extracted text to the LLM instead.  This
+    requires significantly less RAM/VRAM and is ideal for CPU-only servers.
     """
-    return _llm_api_enabled()
+    return _llm_api_enabled() and settings.LLM_VISION

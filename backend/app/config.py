@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""          # empty = disabled; set to your local LLM server
     LLM_MODEL: str = "llama3.2"    # any model pulled in Ollama / loaded in LM Studio
 
+    # Set to False when LLM_MODEL is a text-only model (e.g. llama3.2 instead
+    # of llama3.2-vision).  The import pipeline then skips the vision step
+    # entirely and runs Tesseract OCR on the image first, then sends the
+    # extracted text to the LLM.  This requires far less RAM/VRAM than a
+    # vision model and is a good choice for CPU-only or low-memory servers.
+    LLM_VISION: bool = True
+
     # ── Legacy Ollama /api/generate (kept for backwards compatibility) ─────────
     # Prefer LLM_BASE_URL=http://ollama:11434/v1 for new setups.
     # Example: AI_ENDPOINT=http://ollama:11434
