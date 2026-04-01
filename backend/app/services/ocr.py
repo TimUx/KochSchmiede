@@ -32,6 +32,36 @@ def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _split_step_sentences(text: str) -> list[str]:
+    """Split a combined step string into individual sentences.
+
+    Only splits where a non-whitespace token ending with ``.!?`` is longer
+    than 5 characters (i.e. not an abbreviation such as "ca.", "z.B.",
+    "bzw.", "etc.", "evtl.", "inkl.") **and** is immediately followed by
+    whitespace and an uppercase letter (start of a new German/English sentence).
+    The uppercase check uses ``[A-ZÄÖÜ]`` which covers German umlauts; this is
+    intentional as KochSchmiede is a German-language application.
+
+    Examples that ARE split:
+    - "…verteilen. Bei 180 °C…"   ("verteilen." = 10 chars)
+    - "…geben. Das …"             ("geben." = 6 chars)
+    Examples that are NOT split:
+    - "…ca. 20 Minuten…"          ("ca." = 3 chars – abbreviation)
+    - "…evtl. Tomaten…"           ("evtl." = 5 chars – abbreviation)
+    """
+    sentences: list[str] = []
+    start = 0
+    for m in re.finditer(r"(\S+[.!?])\s+(?=[A-ZÄÖÜ])", text):
+        token = m.group(1)
+        if len(token) > 5:
+            sentences.append(text[start : m.start() + len(token)].strip())
+            start = m.end()
+    tail = text[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return [s for s in sentences if s]
+
+
 def _parse_ocr_text(text: str) -> ImportResult:
     """Parse raw OCR / PDF text into structured recipe data using heuristics."""
     # Preserve blank lines so they can serve as paragraph separators in the
@@ -159,7 +189,13 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 cleaned_parts.append(cleaned)
         combined = " ".join(cleaned_parts).strip()
         if combined:
-            steps.append(combined)
+            # Split the combined text into individual sentences at real sentence
+            # boundaries: a word ending with .!? that is longer than 5 chars (so
+            # not an abbreviation like "ca.", "z.B.", "evtl.") followed by
+            # whitespace and then an uppercase letter (start of new sentence).
+            # This turns multi-sentence step blocks into individual step entries.
+            sentences = _split_step_sentences(combined)
+            steps.extend(sentences)
         step_buffer = []
 
     def _is_sentence_end(s: str) -> bool:
@@ -167,10 +203,10 @@ def _parse_ocr_text(text: str) -> ImportResult:
 
         Avoids flushing the step buffer mid-sentence when a line ends with a
         common German abbreviation that carries a period (e.g. "ca.", "z.B.",
-        "bzw.", "etc.").  The heuristic: if the last token (word ending in '.')
-        is 4 characters or shorter, treat it as an abbreviation and do NOT
-        flush.  Real sentence-ending words ("lassen.", "backen.", "verteilen.")
-        are typically longer.
+        "bzw.", "evtl.", "inkl.").  The heuristic: if the last token (word
+        ending in '.') is 5 characters or shorter, treat it as an abbreviation
+        and do NOT flush.  Real sentence-ending words ("lassen.", "backen.",
+        "verteilen.") are typically longer (≥ 6 characters).
         """
         if not s:
             return False
@@ -180,8 +216,9 @@ def _parse_ocr_text(text: str) -> ImportResult:
             return False
         # Split off the last whitespace-separated token.
         last_token = s.rsplit(None, 1)[-1] if s.strip() else ""
-        # Abbreviations are short (≤ 4 chars incl. the dot): ca., z.B., bzw., etc.
-        return len(last_token) > 4
+        # Abbreviations are short (≤ 5 chars incl. the dot): ca., z.B., bzw.,
+        # evtl., inkl., etc.  Real sentence-ending words are longer.
+        return len(last_token) > 5
 
     def _flush_current_group() -> None:
         nonlocal current_group
@@ -280,7 +317,13 @@ def _parse_ocr_text(text: str) -> ImportResult:
             in_ingredients = True
             in_steps = False
             _flush_current_group()
-            current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
+            group_name = line.rstrip(":").strip()
+            # Normalise Chefkoch-style long form "Zutaten für den Teig" →
+            # short form "Für den Teig" so group labels are clean in the UI.
+            group_name = re.sub(r"^Zutaten\s+", "", group_name, flags=re.IGNORECASE)
+            if group_name:
+                group_name = group_name[0].upper() + group_name[1:]
+            current_group = {"name": group_name, "ingredients": []}
             pending_ingredient_prefix = None
             continue
 
@@ -308,6 +351,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
             _flush_step_buffer()
             in_steps = True
             in_ingredients = False
+            pending_ingredient_prefix = None
             continue
 
         # ── Title / Description: first two meaningful pre-section lines ─────────
@@ -453,8 +497,19 @@ def _parse_ocr_text(text: str) -> ImportResult:
             ingredient_groups[-1].ingredients.extend(remaining)
         ingredients = []
 
+    # Remove the recipe title from ingredient lists: in flat-text PDFs the
+    # title sometimes appears after the ingredient section in the text stream
+    # and can accidentally be captured as an ingredient before it is recognised
+    # as the title.  Purge it now that we know the final title.
+    resolved_title = title or "Importiertes Rezept"
+    if title:
+        title_lower = title.lower()
+        for grp in ingredient_groups:
+            grp.ingredients = [i for i in grp.ingredients if i.lower() != title_lower]
+        ingredients = [i for i in ingredients if i.lower() != title_lower]
+
     return ImportResult(
-        title=title or "Importiertes Rezept",
+        title=resolved_title,
         description=description,
         ingredients=ingredients[:30],
         ingredient_groups=ingredient_groups,
