@@ -25,15 +25,76 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
 
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:
+    pass  # HEIC support unavailable; HEIC files will raise an error on open
+
 _IMPORT_UPLOAD_DIR = Path("/app/uploads/imported")
+
+# Unicode fraction characters → ASCII equivalents.  Used by _parse_ocr_text to
+# normalise recipe text before splitting into lines so that amount patterns
+# (e.g. "½ TL Salz") are handled uniformly as "1/2 TL Salz".
+_FRACTION_MAP: dict[str, str] = {
+    "½": "1/2",
+    "¼": "1/4",
+    "¾": "3/4",
+    "⅓": "1/3",
+    "⅔": "2/3",
+    "⅛": "1/8",
+    "⅜": "3/8",
+    "⅝": "5/8",
+    "⅞": "7/8",
+}
+
+# Pre-compiled regex for fraction substitution: faster than iterating
+# the map and calling str.replace() for each entry on every parse call.
+_FRACTION_RE = re.compile("|".join(re.escape(k) for k in _FRACTION_MAP))
+_FRACTION_SUB = lambda m: _FRACTION_MAP[m.group(0)]  # noqa: E731
 
 
 def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _split_step_sentences(text: str) -> list[str]:
+    """Split a combined step string into individual sentences.
+
+    Only splits where a non-whitespace token ending with ``.!?`` is longer
+    than 5 characters (i.e. not an abbreviation such as "ca.", "z.B.",
+    "bzw.", "etc.", "evtl.", "inkl.") **and** is immediately followed by
+    whitespace and an uppercase letter (start of a new German/English sentence).
+    The uppercase check uses ``[A-ZÄÖÜ]`` which covers German umlauts; this is
+    intentional as KochSchmiede is a German-language application.
+
+    Examples that ARE split:
+    - "…verteilen. Bei 180 °C…"   ("verteilen." = 10 chars)
+    - "…geben. Das …"             ("geben." = 6 chars)
+    Examples that are NOT split:
+    - "…ca. 20 Minuten…"          ("ca." = 3 chars – abbreviation)
+    - "…evtl. Tomaten…"           ("evtl." = 5 chars – abbreviation)
+    """
+    sentences: list[str] = []
+    start = 0
+    for m in re.finditer(r"(\S+[.!?])\s+(?=[A-ZÄÖÜ])", text):
+        token = m.group(1)
+        if len(token) > 5:
+            sentences.append(text[start : m.start() + len(token)].strip())
+            start = m.end()
+    tail = text[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return [s for s in sentences if s]
+
+
 def _parse_ocr_text(text: str) -> ImportResult:
     """Parse raw OCR / PDF text into structured recipe data using heuristics."""
+    # Normalise unicode fraction characters to ASCII so that amount_re and
+    # ingredient parsers can handle them uniformly (see _FRACTION_MAP).
+    text = _FRACTION_RE.sub(_FRACTION_SUB, text)
+
     # Preserve blank lines so they can serve as paragraph separators in the
     # steps section; only strip leading/trailing whitespace per line.
     raw_lines = [l.strip() for l in text.splitlines()]
@@ -73,9 +134,60 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # Boilerplate lines common in printed/exported recipe PDFs.
     # "gesamtzeit" has no trailing \b so it also matches "Gesamtzeitca." (PDF
     # formatting where no space appears between the keyword and "ca.").
+    # The "portion(en) hat/haben/ergibt" pattern removes nutritional notes
+    # that some Chefkoch exports append after the recipe steps, e.g.
+    # "1 Portion hat (durch den Magerquark) 0,5 KE für die Anrechnung …".
+    # "gespeichert" catches the website social/bookmarks UI bar that sometimes
+    # OCRs from Chefkoch screenshot imports (merged form "GespeichertimKochbuch"
+    # or spaced "Gespeichert im Kochbuch").
+    # "@" at the start of a line is an OCR artifact from UI icon glyphs (e.g.
+    # the Chefkoch save-to-cookbook button) — real recipe text never starts with @.
+    # "gesamtzeit arbeitszeit" (combined timing label row from screenshot
+    # timing-bar, e.g. "Gesamtzeit Arbeitszeit Koch-/Backzeit") is also noise.
+    # "®" matches the stray registered-trade-mark glyph OCRed from the page footer.
+    # Magazine/supermarket ad patterns (e.g. REWE Kundenmagazin recipe pages):
+    # - "N% gespart" → discount sticker on product ads
+    # - "*.de/*" / "*.com/*" → brand URLs (REWE.de/ostern, rewe.de/frischundgut)
+    # - "Kundenmagazin" → magazine branding headline
+    # - "deine küche" / "DEINE KÜCHE" → REWE branded label
+    # - "^\d+[.,]\d{2}$" → standalone price lines (1,69 / 0,88)
+    # - "(NN g = N.NN)" → per-unit price info inside product descriptions
+    # - "NN-g-Packung" / "NN-ml-Packung" etc. → product size labels
     noise_re = re.compile(
         r"^(?:chefkoch|rezept\s+online\b|aufrufen\b|rezept\s+von\b|schwierigkeitsgrad\b"
-        r"|gesamtzeit|portionsgröße\b|kalorien\b|nährwert|foto[:\s]).*$",
+        r"|gesamtzeit|portionsgröße\b|kalorien\b|nährwert|foto[:\s]"
+        r"|\d+\s+portion(?:en)?\s+(?:hat|haben|ergibt|ergeben)\b"
+        r"|gespeichert|@"
+        r"|®"
+        r"|gesamtzeit\s+arbeitszeit|arbeitszeit\s+(?:koch|back)"
+        r"|kundenmagazin\b"
+        r"|deine\s+küche\b"
+        r"|\d+\s*%\s*gespart\b"
+        r"|\S+\.de/\S+"
+        r"|\S+\.com/\S+"
+        r"|\(\d+\s*[gGkKlLmM]+\s*="
+        r"|\d+[-–]\s*[gGkKlLmMcC]+\s*-?packung\b).*$",
+        re.IGNORECASE,
+    )
+    # Standalone price lines: a number with exactly 2 decimal places and nothing
+    # else, e.g. "1,69" or "0.88" — these are supermarket ad prices that OCR
+    # picks up from product imagery on magazine recipe pages.
+    _standalone_price_re = re.compile(r"^\d+[.,]\d{2}$")
+    # Standalone section-label lines found in printed recipe books where the
+    # field is intentionally left blank (e.g. "Zeit", "Bemerkungen:").
+    # These carry no recipe data and must not be captured as title/description.
+    book_label_re = re.compile(r"^(?:zeit|bemerkungen)[\s:]*$", re.IGNORECASE)
+
+    # Group/section header keywords that — in magazine two-column layouts —
+    # can be OCR-merged with adjacent right-column step text on the same line,
+    # e.g. "Teig: De — ee ie in' issel cremi" or
+    #      "Topping: lows auffüllen und nach Belieben …".
+    # These keywords only ever appear as standalone section labels, so if we
+    # detect one at the START of a longer line we can safely discard everything
+    # after the colon (which is garbled step text from the adjacent column).
+    _group_header_at_start_re = re.compile(
+        r"^((?:teig|topping|soße|sauce|füllung|dressing|marinade|glasur|belag"
+        r"|kruste|suppe|brühe|fond|garnierung|sirup)\s*:)\s+\S.{15,}",
         re.IGNORECASE,
     )
 
@@ -90,6 +202,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
         r"\b(?:koch|back)[-/\w]*zeit[\s:]*(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE
     )
 
+    # Compact 3-value timing bar from Chefkoch screenshot imports.
+    # OCR renders the timing row as a single line with icon glyphs between the
+    # minute values, e.g. "© 55Min. © 35Min. G 20Min." where the order is
+    # always Gesamtzeit → Arbeitszeit → Koch-/Backzeit.  We extract the 2nd
+    # value as prep_time and the 3rd value as cook_time and then discard the
+    # whole line (noise).  The regex requires exactly 3 integer+Min groups to
+    # avoid accidentally matching step sentences that mention minutes.
+    _compact_timing_bar_re = re.compile(
+        r"^\D*(\d+)\s*[Mm]in\.?\D+(\d+)\s*[Mm]in\.?\D+(\d+)\s*[Mm]in",
+        re.IGNORECASE,
+    )
+
     # Patterns for standalone timing-keyword lines whose value appears on the
     # *next* line, e.g. "Arbeitszeit\nca. 35 Minuten".
     arbeitszeit_keyword_re = re.compile(r"^arbeitszeit\s*$", re.IGNORECASE)
@@ -100,6 +224,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # discarded too so it never becomes the recipe description.
     schwierigkeitsgrad_keyword_re = re.compile(r"^schwierigkeitsgrad\s*$", re.IGNORECASE)
     time_value_re = re.compile(r"(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE)
+    # Pattern for inline baking instructions common in magazine recipes, e.g.
+    # "bei 180 °C ca. 30 Min. backen" – extract the duration as cook_time.
+    backen_time_re = re.compile(
+        r"\bbei\s+\d+\s*°[CcFf].*?(?:ca\.?\s*)?(\d+)\s*min\b.*\bback\w*",
+        re.IGNORECASE,
+    )
+    # Simpler variant for baking-time lines where the temperature is on the
+    # preceding OCR line (two-column merge artefact): "ca. 30 Min. backen."
+    backen_time_simple_re = re.compile(
+        r"(?:ca\.?\s*)?(\d+)\s*min\w*\s*\.\s*\bback\w*",
+        re.IGNORECASE,
+    )
 
     # Patterns for column-based PDF ingredient tables where amounts, units and
     # names may appear on separate lines or in reversed order.
@@ -159,7 +295,13 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 cleaned_parts.append(cleaned)
         combined = " ".join(cleaned_parts).strip()
         if combined:
-            steps.append(combined)
+            # Split the combined text into individual sentences at real sentence
+            # boundaries: a word ending with .!? that is longer than 5 chars (so
+            # not an abbreviation like "ca.", "z.B.", "evtl.") followed by
+            # whitespace and then an uppercase letter (start of new sentence).
+            # This turns multi-sentence step blocks into individual step entries.
+            sentences = _split_step_sentences(combined)
+            steps.extend(sentences)
         step_buffer = []
 
     def _is_sentence_end(s: str) -> bool:
@@ -167,10 +309,10 @@ def _parse_ocr_text(text: str) -> ImportResult:
 
         Avoids flushing the step buffer mid-sentence when a line ends with a
         common German abbreviation that carries a period (e.g. "ca.", "z.B.",
-        "bzw.", "etc.").  The heuristic: if the last token (word ending in '.')
-        is 4 characters or shorter, treat it as an abbreviation and do NOT
-        flush.  Real sentence-ending words ("lassen.", "backen.", "verteilen.")
-        are typically longer.
+        "bzw.", "evtl.", "inkl.").  The heuristic: if the last token (word
+        ending in '.') is 5 characters or shorter, treat it as an abbreviation
+        and do NOT flush.  Real sentence-ending words ("lassen.", "backen.",
+        "verteilen.") are typically longer (≥ 6 characters).
         """
         if not s:
             return False
@@ -180,8 +322,9 @@ def _parse_ocr_text(text: str) -> ImportResult:
             return False
         # Split off the last whitespace-separated token.
         last_token = s.rsplit(None, 1)[-1] if s.strip() else ""
-        # Abbreviations are short (≤ 4 chars incl. the dot): ca., z.B., bzw., etc.
-        return len(last_token) > 4
+        # Abbreviations are short (≤ 5 chars incl. the dot): ca., z.B., bzw.,
+        # evtl., inkl., etc.  Real sentence-ending words are longer.
+        return len(last_token) > 5
 
     def _flush_current_group() -> None:
         nonlocal current_group
@@ -248,8 +391,29 @@ def _parse_ocr_text(text: str) -> ImportResult:
             pending_discard = True
             continue
 
+        # ── Compact 3-value timing bar from screenshot imports ─────────────────
+        # e.g. "© 55Min. © 35Min. G 20Min." (Gesamtzeit/Arbeitszeit/Koch-Backzeit)
+        # This check runs BEFORE noise_re so that the "©" glyph at the start of
+        # the timing bar line does not trigger noise filtering before the minute
+        # values are extracted.
+        m = _compact_timing_bar_re.match(line)
+        if m:
+            if prep_time is None:
+                prep_time = int(m.group(2))
+            if cook_time is None:
+                cook_time = int(m.group(3))
+            continue  # discard the whole timing bar line
+
         # ── Skip known noise / boilerplate ───────────────────────────────────
         if noise_re.match(line):
+            continue
+
+        # ── Skip standalone recipe-book section labels (empty fields) ────────
+        if book_label_re.match(line):
+            continue
+
+        # ── Skip standalone supermarket price lines (e.g. "1,69") ────────────
+        if _standalone_price_re.match(line):
             continue
 
         # ── Extract timing metadata (valid anywhere in the document) ─────────
@@ -263,6 +427,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
             if m:
                 cook_time = int(m.group(1))
                 continue
+        # Extract bake time from inline magazine instructions, e.g.
+        # "bei 180 °C ca. 30 Min. backen" – common in printed recipe pages.
+        if cook_time is None:
+            m = backen_time_re.search(line)
+            if m:
+                cook_time = int(m.group(1))
+                # Do NOT continue: the line may also carry step content that
+                # should be captured (it is not pure metadata).
+        if cook_time is None:
+            m = backen_time_simple_re.search(line)
+            if m:
+                cook_time = int(m.group(1))
 
         # ── Standalone timing keyword (value on the next line) ────────────────
         if prep_time is None and arbeitszeit_keyword_re.match(line):
@@ -272,15 +448,47 @@ def _parse_ocr_text(text: str) -> ImportResult:
             pending_cook_time = True
             continue
 
+        # ── "Für N Portionen" standalone line (screenshot-style servings) ─────
+        # On the Chefkoch website the serving count appears as a standalone line
+        # "Für 2 Portionen" just below the "Zutaten" heading.  The
+        # group_header_re would otherwise treat this as a named ingredient group
+        # (because it starts with "für ").  Detect and convert it to servings
+        # before the group_header check fires.
+        if servings is None:
+            m = re.match(
+                r"^für\s+(\d+)\s*(?:portion|person|stück|serving)",
+                line,
+                re.IGNORECASE,
+            )
+            if m:
+                servings = int(m.group(1))
+                continue
+
         # ── Ingredient group headers (checked BEFORE the generic section header
         #    so "Zutaten für den Teig:" is treated as a named group, not merely
         #    as a second "Zutaten" section restart) ────────────────────────────
+        # In magazine two-column layouts, the group header keyword can be
+        # OCR-merged with right-column step text on the same line, e.g.
+        # "Teig: De — ee ie in' issel cremi".  Detect this and truncate to
+        # just the header so group_header_re can match it properly.
+        m_prefix = _group_header_at_start_re.match(line)
+        if m_prefix:
+            line = m_prefix.group(1)  # keep only "Teig:" / "Topping:" etc.
         if group_header_re.match(line):
             _flush_step_buffer()
             in_ingredients = True
             in_steps = False
             _flush_current_group()
-            current_group = {"name": line.rstrip(":").strip(), "ingredients": []}
+            group_name = line.rstrip(":").strip()
+            # Normalise Chefkoch-style long form "Zutaten für den Teig" →
+            # short form "Für den Teig" so group labels are clean in the UI.
+            group_name = re.sub(r"^Zutaten\s+", "", group_name, flags=re.IGNORECASE)
+            # Re-capitalise the first letter after stripping "Zutaten ".
+            # The `if group_name` guard prevents IndexError on empty strings
+            # (empty strings are falsy in Python).
+            if group_name:
+                group_name = group_name[0].upper() + group_name[1:]
+            current_group = {"name": group_name, "ingredients": []}
             pending_ingredient_prefix = None
             continue
 
@@ -308,6 +516,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
             _flush_step_buffer()
             in_steps = True
             in_ingredients = False
+            pending_ingredient_prefix = None
             continue
 
         # ── Title / Description: first two meaningful pre-section lines ─────────
@@ -316,8 +525,20 @@ def _parse_ocr_text(text: str) -> ImportResult:
         # (e.g. "Magerquark") from being mistaken for the recipe title when the
         # PDF content stream places the ingredient table before the title text.
         if not in_ingredients and not in_steps:
+            # _mostly_uppercase: reject headline/brand text from magazine/ad
+            # pages where OCR produces mostly-capital lines like
+            # "DIE SONDERAUSGABE DES KUNDENMAGAZINS" even though isupper()
+            # may return False due to a few lowercase OCR artefacts.
+            alpha_chars = [c for c in line if c.isalpha()]
+            _mostly_upper = (
+                len(alpha_chars) >= 4
+                and sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars) > 0.60
+            )
             is_title_candidate = (
-                len(line) > 3 and not amount_re.search(line) and not line.isupper()
+                len(line) > 3
+                and not amount_re.search(line)
+                and not line.isupper()
+                and not _mostly_upper
             )
             if not title and is_title_candidate:
                 title = line
@@ -334,6 +555,23 @@ def _parse_ocr_text(text: str) -> ImportResult:
         # ── Ingredient section content ────────────────────────────────────────
         if in_ingredients:
             stripped = line.strip()
+
+            # Strip leading approximate-quantity markers (≈, ~, ca.) that are
+            # common in handwritten recipes, e.g. "≈ 180gr Quark" → "180gr Quark".
+            # This normalises the ingredient before further checks so that the
+            # amount_re and pure_amount_re patterns match correctly.
+            stripped = re.sub(r"^[≈~]\s*", "", stripped)
+            line = stripped
+
+            # Discard lines that are clearly OCR artifacts or advertisement
+            # content rather than recipe ingredients:
+            #   • Lines shorter than 3 characters (noise glyphs like "/", "SE")
+            #   • Lines starting with "|" (table/cell OCR artifacts)
+            #   • Lines containing "gespart" (supermarket discount text)
+            if len(stripped) < 3 or stripped[0] == "|" or re.search(
+                r"\bgespart\b", stripped, re.IGNORECASE
+            ):
+                continue
 
             # Handle pure unit abbreviations (e.g. "g", "ml") that appear as
             # separate column entries in column-based PDF ingredient tables.
@@ -356,8 +594,12 @@ def _parse_ocr_text(text: str) -> ImportResult:
             # or descriptions that slipped into the ingredient section (common
             # in single-page PDFs with multi-column layouts) – discard them.
             # German ingredient names always start with an uppercase letter.
+            # Exception: German cooking abbreviations that begin with a single
+            # lowercase letter followed by a period (e.g. "n. B." = "nach
+            # Belieben", "n. B. Kräuter, italienische").
             if line and line[0].islower() and len(line) <= 50:
-                continue
+                if not re.match(r"^[a-z]\.\s", line):
+                    continue
 
             # If the recipe title reappears inside the ingredient section (a
             # common PDF layout artefact) skip it rather than adding it as an
@@ -382,15 +624,78 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 line = f"{pending_ingredient_prefix.strip()} {line}".strip()
                 pending_ingredient_prefix = None
 
+            # ── Two-column magazine layout: split merged ingredient+step lines ──
+            # In scanned magazine pages with two-column layouts, the ingredient
+            # list (left column) and the preparation steps (right column) are
+            # often OCR-merged onto the same output line, e.g.:
+            #   "50 ml Milch 4. Auf die Creme kleben, …"
+            #   "150 g Frischkäse Münder oder Nasen auf die Gesichter malen."
+            # We try two strategies to rescue the ingredient prefix:
+            #
+            # Strategy 1 – numbered step marker mid-line (most reliable):
+            #   Scan for "N. " / "N) " preceded by ≥ 5 chars of ingredient text.
+            #   The ingredient part before the marker is saved; the step part
+            #   goes into the step buffer (staying in ingredient mode so later
+            #   clean lines are still captured as ingredients).
+            #
+            # Strategy 2 – amount prefix before long prose (≥ 15 chars):
+            #   Match a leading "amount [unit] ingredient-name" chunk (≤ 40 chars)
+            #   followed by prose text.  Only the ingredient prefix is kept; the
+            #   prose is discarded (the right-column steps appear as complete
+            #   lines elsewhere in the OCR output and will be captured there).
+            if len(line) > 30:
+                _step_marker = re.search(r"\s+(\d+[.)]\s+[A-ZÄÖÜ\d])", line)
+                if _step_marker and _step_marker.start() >= 5:
+                    _ingr = line[: _step_marker.start()].strip()
+                    _step = line[_step_marker.start() :].strip()
+                    if _ingr:
+                        if current_group is not None:
+                            current_group["ingredients"].append(_ingr)
+                        else:
+                            ingredients.append(_ingr)
+                    if _step:
+                        step_buffer.append(_step)
+                        if _is_sentence_end(_step):
+                            _flush_step_buffer()
+                    continue
+
+            if len(line) > 50:
+                _ingr_m = re.match(
+                    r"^(?:[‚'\"<>|]*\s*)?"  # skip leading OCR artifacts
+                    r"(\d[\d\-/.,]*"  # amount (starts with digit)
+                    r"(?:\s*\w{1,10})?"  # optional unit (g, kg, ml, TL, …)
+                    r"\s+[^\s,.!?:;]{2,})"  # first ingredient word only (≥ 2 chars)
+                    r"\s+(.{15,})$",  # step text: at least 15 chars
+                    line,
+                )
+                if _ingr_m and len(_ingr_m.group(1).strip()) <= 40:
+                    _ingr = _ingr_m.group(1).strip()
+                    if _ingr:
+                        if current_group is not None:
+                            current_group["ingredients"].append(_ingr)
+                        else:
+                            ingredients.append(_ingr)
+                    # Stay in ingredient mode so subsequent clean lines are
+                    # captured as ingredients; discard the merged step text
+                    # (the right-column steps appear as complete OCR lines
+                    # elsewhere and will be captured when reached).
+                    continue
+
             # Transition to steps when:
             # - A numbered step line (e.g. "1. Mix flour")
             # - A longer prose line (> 50 chars) typical of step instructions
             # - A sentence-continuation line that starts with a lowercase letter
-            #   (len > 50; shorter lowercase lines are already discarded above)
+            #   that is NOT a German cooking abbreviation (e.g. "n. B." =
+            #   "nach Belieben") — the same exception applied to the discard
+            #   check above.
             is_step_transition = (
                 step_re.match(line)
                 or len(line) > 50
-                or (line and line[0].islower())
+                or (
+                    line
+                    and line[0].islower()
+                    and not re.match(r"^[a-z]\.\s", line)
+                )
             )
             if is_step_transition:
                 # Transition to steps; fall through to the steps block below.
@@ -453,8 +758,19 @@ def _parse_ocr_text(text: str) -> ImportResult:
             ingredient_groups[-1].ingredients.extend(remaining)
         ingredients = []
 
+    # Remove the recipe title from ingredient lists: in flat-text PDFs the
+    # title sometimes appears after the ingredient section in the text stream
+    # and can accidentally be captured as an ingredient before it is recognised
+    # as the title.  Purge it now that we know the final title.
+    resolved_title = title or "Importiertes Rezept"
+    if title:
+        title_lower = title.lower()
+        for grp in ingredient_groups:
+            grp.ingredients = [i for i in grp.ingredients if i.lower() != title_lower]
+        ingredients = [i for i in ingredients if i.lower() != title_lower]
+
     return ImportResult(
-        title=title or "Importiertes Rezept",
+        title=resolved_title,
         description=description,
         ingredients=ingredients[:30],
         ingredient_groups=ingredient_groups,
@@ -530,7 +846,11 @@ def extract_image_text(image_bytes: bytes, handwriting: bool = False) -> str:
     if handwriting:
         image = ImageEnhance.Contrast(image).enhance(2.0)
         image = image.filter(ImageFilter.SHARPEN)
-        tesseract_config = "--oem 1 --psm 6"
+        # PSM 11 (sparse text) works better than PSM 6 (uniform block) for
+        # handwritten recipe-book photos: it finds text scattered across
+        # two-column layouts and ignores decorative elements, and reliably
+        # picks up section headers like "Zutaten" / "Zubereitung".
+        tesseract_config = "--oem 1 --psm 11"
     else:
         tesseract_config = "--oem 3 --psm 3"
 
@@ -553,7 +873,7 @@ def _extract_text_via_pdf2image(pdf_bytes: bytes, handwriting: bool = False) -> 
 
                 img = ImageEnhance.Contrast(img).enhance(2.0)
                 img = img.filter(ImageFilter.SHARPEN)
-                cfg = "--oem 1 --psm 6"
+                cfg = "--oem 1 --psm 11"
             else:
                 cfg = "--oem 3 --psm 3"
             parts.append(pytesseract.image_to_string(img, lang="deu+eng", config=cfg))
@@ -620,12 +940,34 @@ def extract_pdf_text_and_image(
                 right_blocks.append((by0, text))  # ingredients column
 
         # Each group is sorted by vertical position; groups are concatenated
-        # in the order: full-width → left column → right column.
-        ordered_parts = (
-            [t for _, t in sorted(full_blocks)]
-            + [t for _, t in sorted(left_blocks)]
-            + [t for _, t in sorted(right_blocks)]
-        )
+        # in reading order.
+        if full_blocks:
+            # When full-width blocks exist (e.g. step paragraphs spanning the
+            # full page width), left-column blocks that sit ABOVE the first
+            # full-width block (smaller y) are placed before it.  This
+            # preserves cross-page ingredient continuations: e.g. a 2-page
+            # recipe where the last ingredient overflows to the top of page 2
+            # as a narrow left block, while the recipe steps span the full
+            # page width starting just below it.  Without this split the
+            # ingredient would be sorted after all steps and mistakenly
+            # captured as one.
+            first_full_y = min(y for y, _ in full_blocks)
+            pre_full_left = [(y, t) for y, t in left_blocks if y < first_full_y]
+            post_full_left = [(y, t) for y, t in left_blocks if y >= first_full_y]
+            ordered_parts = (
+                [t for _, t in sorted(pre_full_left)]
+                + [t for _, t in sorted(full_blocks)]
+                + [t for _, t in sorted(post_full_left)]
+                + [t for _, t in sorted(right_blocks)]
+            )
+        else:
+            # No full-width blocks: simple left → right ordering (covers the
+            # common two-column layout where instructions are on the left and
+            # ingredients on the right).
+            ordered_parts = (
+                [t for _, t in sorted(left_blocks)]
+                + [t for _, t in sorted(right_blocks)]
+            )
         if ordered_parts:
             # Separate blocks with a blank line so paragraph boundaries are
             # preserved for the step-splitting logic in the heuristic parser.
