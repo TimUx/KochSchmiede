@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/import", tags=["import"])
 
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/tiff"}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/tiff", "image/heic", "image/heif"}
 ALLOWED_PDF_TYPE = "application/pdf"
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
@@ -56,7 +56,7 @@ def _is_pdf(file: UploadFile) -> bool:
 def _is_image(file: UploadFile) -> bool:
     return (file.content_type or "") in ALLOWED_IMAGE_TYPES or any(
         (file.filename or "").lower().endswith(ext)
-        for ext in (".jpg", ".jpeg", ".png", ".webp", ".tiff")
+        for ext in (".jpg", ".jpeg", ".png", ".webp", ".tiff", ".heic", ".heif")
     )
 
 

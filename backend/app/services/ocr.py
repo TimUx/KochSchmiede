@@ -25,6 +25,13 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
 
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:
+    pass  # HEIC support unavailable; HEIC files will raise an error on open
+
 _IMPORT_UPLOAD_DIR = Path("/app/uploads/imported")
 
 
@@ -114,6 +121,8 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # "gesamtzeit arbeitszeit" (combined timing label row from screenshot
     # timing-bar, e.g. "Gesamtzeit Arbeitszeit Koch-/Backzeit") is also noise.
     # "®" matches the stray registered-trade-mark glyph OCRed from the page footer.
+    # "zeit" and "bemerkungen" are standalone section-label lines found in
+    # printed recipe books where the field is left empty — they carry no data.
     noise_re = re.compile(
         r"^(?:chefkoch|rezept\s+online\b|aufrufen\b|rezept\s+von\b|schwierigkeitsgrad\b"
         r"|gesamtzeit|portionsgröße\b|kalorien\b|nährwert|foto[:\s]"
@@ -123,6 +132,10 @@ def _parse_ocr_text(text: str) -> ImportResult:
         r"|gesamtzeit\s+arbeitszeit|arbeitszeit\s+(?:koch|back)).*$",
         re.IGNORECASE,
     )
+    # Standalone section-label lines found in printed recipe books where the
+    # field is intentionally left blank (e.g. "Zeit", "Bemerkungen:").
+    # These carry no recipe data and must not be captured as title/description.
+    book_label_re = re.compile(r"^(?:zeit|bemerkungen)[\s:]*$", re.IGNORECASE)
 
     # Timing patterns.
     # Use [\s:]* (zero-or-more) instead of [\s:]+ so that PDFs where the
@@ -329,6 +342,10 @@ def _parse_ocr_text(text: str) -> ImportResult:
         if noise_re.match(line):
             continue
 
+        # ── Skip standalone recipe-book section labels (empty fields) ────────
+        if book_label_re.match(line):
+            continue
+
         # ── Extract timing metadata (valid anywhere in the document) ─────────
         if prep_time is None:
             m = arbeitszeit_re.search(line)
@@ -437,6 +454,13 @@ def _parse_ocr_text(text: str) -> ImportResult:
         # ── Ingredient section content ────────────────────────────────────────
         if in_ingredients:
             stripped = line.strip()
+
+            # Strip leading approximate-quantity markers (≈, ~, ca.) that are
+            # common in handwritten recipes, e.g. "≈ 180gr Quark" → "180gr Quark".
+            # This normalises the ingredient before further checks so that the
+            # amount_re and pure_amount_re patterns match correctly.
+            stripped = re.sub(r"^[≈~]\s*", "", stripped)
+            line = stripped
 
             # Handle pure unit abbreviations (e.g. "g", "ml") that appear as
             # separate column entries in column-based PDF ingredient tables.
@@ -654,7 +678,11 @@ def extract_image_text(image_bytes: bytes, handwriting: bool = False) -> str:
     if handwriting:
         image = ImageEnhance.Contrast(image).enhance(2.0)
         image = image.filter(ImageFilter.SHARPEN)
-        tesseract_config = "--oem 1 --psm 6"
+        # PSM 11 (sparse text) works better than PSM 6 (uniform block) for
+        # handwritten recipe-book photos: it finds text scattered across
+        # two-column layouts and ignores decorative elements, and reliably
+        # picks up section headers like "Zutaten" / "Zubereitung".
+        tesseract_config = "--oem 1 --psm 11"
     else:
         tesseract_config = "--oem 3 --psm 3"
 
@@ -677,7 +705,7 @@ def _extract_text_via_pdf2image(pdf_bytes: bytes, handwriting: bool = False) -> 
 
                 img = ImageEnhance.Contrast(img).enhance(2.0)
                 img = img.filter(ImageFilter.SHARPEN)
-                cfg = "--oem 1 --psm 6"
+                cfg = "--oem 1 --psm 11"
             else:
                 cfg = "--oem 3 --psm 3"
             parts.append(pytesseract.image_to_string(img, lang="deu+eng", config=cfg))
