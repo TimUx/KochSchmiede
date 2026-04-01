@@ -96,6 +96,9 @@ def _parse_ocr_text(text: str) -> ImportResult:
     kochzeit_keyword_re = re.compile(r"^(?:koch|back)[-/\w]*zeit\s*$", re.IGNORECASE)
     # "Gesamtzeit" standalone keyword – its value on the next line is discarded.
     gesamtzeit_keyword_re = re.compile(r"^gesamtzeit\s*$", re.IGNORECASE)
+    # "Schwierigkeitsgrad" standalone keyword – its value line ("normal", …) is
+    # discarded too so it never becomes the recipe description.
+    schwierigkeitsgrad_keyword_re = re.compile(r"^schwierigkeitsgrad\s*$", re.IGNORECASE)
     time_value_re = re.compile(r"(?:ca\.?\s*)?(\d+)\s*min", re.IGNORECASE)
 
     # Patterns for column-based PDF ingredient tables where amounts, units and
@@ -130,6 +133,10 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # Set after a standalone "Gesamtzeit" keyword; causes the next time-value
     # line to be discarded (KochSchmiede only uses prep_time and cook_time).
     pending_total_time = False
+    # Set after a standalone "Schwierigkeitsgrad" keyword so that the value
+    # line ("normal", "leicht", …) is unconditionally discarded and never
+    # mistakenly captured as the recipe description.
+    pending_discard = False
     # Amount/unit prefix buffered from the previous line when the ingredient
     # table spreads over multiple lines (e.g. "250 g" then "Magerquark").
     pending_ingredient_prefix: Optional[str] = None
@@ -191,6 +198,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
         # ── Blank line: paragraph separator ──────────────────────────────────
         if not line:
             pending_total_time = False
+            pending_discard = False
             if in_steps:
                 _flush_step_buffer()
             pending_prep_time = False
@@ -222,6 +230,24 @@ def _parse_ocr_text(text: str) -> ImportResult:
             if time_value_re.search(line):
                 continue  # discard total-time value (e.g. "ca. 55 Minuten")
 
+        # ── Discard value line that follows "Schwierigkeitsgrad" (e.g. "normal") ──
+        if pending_discard:
+            pending_discard = False
+            continue
+
+        # ── Metadata-only standalone keywords checked BEFORE noise_re ─────────
+        # noise_re matches "Gesamtzeit" and "Schwierigkeitsgrad" (filtering those
+        # keyword lines correctly), but their *value* lines ("ca. 55 Minuten",
+        # "normal") must also be discarded.  By detecting standalone occurrences
+        # here we set the pending flags before noise_re can consume the keyword
+        # line without side-effects.
+        if gesamtzeit_keyword_re.match(line):
+            pending_total_time = True
+            continue
+        if schwierigkeitsgrad_keyword_re.match(line):
+            pending_discard = True
+            continue
+
         # ── Skip known noise / boilerplate ───────────────────────────────────
         if noise_re.match(line):
             continue
@@ -244,9 +270,6 @@ def _parse_ocr_text(text: str) -> ImportResult:
             continue
         if cook_time is None and kochzeit_keyword_re.match(line):
             pending_cook_time = True
-            continue
-        if gesamtzeit_keyword_re.match(line):
-            pending_total_time = True
             continue
 
         # ── Ingredient group headers (checked BEFORE the generic section header
@@ -300,8 +323,13 @@ def _parse_ocr_text(text: str) -> ImportResult:
                 title = line
                 continue
             if title and description is None and is_title_candidate:
-                description = line
-                continue
+                # Reject long instruction-style paragraphs ending with sentence-
+                # final punctuation (e.g. step text that ends with ".").  A real
+                # recipe subtitle/tagline is always a short phrase without a
+                # trailing period – instruction text always ends with one.
+                if not _is_sentence_end(line):
+                    description = line
+                    continue
 
         # ── Ingredient section content ────────────────────────────────────────
         if in_ingredients:
@@ -412,9 +440,18 @@ def _parse_ocr_text(text: str) -> ImportResult:
     # inside the named group, causing visible duplication in the UI.
     # Remove any item from `ingredients` that is already covered by a named
     # group – the grouped representation is more informative.
+    # Any items that remain in the flat list after deduplication (i.e. items
+    # that appeared in the general overview section but not in any named
+    # sub-group text block) are appended to the last named group.  This
+    # handles the common Chefkoch PDF pattern where the final group's items
+    # (e.g. "Salat", "Tomate(n)") appear in the general flat list but are
+    # omitted from the last sub-group's text block due to PDF layout quirks.
     if ingredient_groups:
         grouped_items = {item for g in ingredient_groups for item in g.ingredients}
-        ingredients = [item for item in ingredients if item not in grouped_items]
+        remaining = [item for item in ingredients if item not in grouped_items]
+        if remaining:
+            ingredient_groups[-1].ingredients.extend(remaining)
+        ingredients = []
 
     return ImportResult(
         title=title or "Importiertes Rezept",

@@ -276,6 +276,17 @@ def _build_import_result(parsed: dict) -> Optional[ImportResult]:
             [str(i) for i in safe["ingredients"]]
         )
     safe["ingredient_groups"] = groups
+    # Deduplication: small models sometimes populate both ``ingredients`` and
+    # ``ingredient_groups`` despite the system prompt saying to leave
+    # ``ingredients`` empty when groups are used.  Remove flat items already
+    # covered by a named group and append any remainder to the last group,
+    # mirroring the heuristic parser's post-processing logic.
+    if groups and safe.get("ingredients"):
+        grouped_items = {item for g in groups for item in g.ingredients}
+        remaining = [item for item in safe["ingredients"] if item not in grouped_items]
+        if remaining:
+            groups[-1].ingredients.extend(remaining)
+        safe["ingredients"] = []
     result = ImportResult(**safe)
     if not _result_looks_valid(result):
         logger.debug("AI result failed quality check – falling back to heuristic")
