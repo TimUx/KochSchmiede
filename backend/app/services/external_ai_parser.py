@@ -7,11 +7,13 @@ these require an API key and make network requests to external services.
 Supported providers
 -------------------
 * ``openai``  – OpenAI Chat Completions (gpt-4o, gpt-4o-mini, …)
-* ``gemini``  – Google Gemini (gemini-1.5-flash, gemini-1.5-pro, …)
+* ``gemini``  – Google Gemini via the official ``google-generativeai`` SDK
+                (gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, …)
 """
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 from typing import Optional
@@ -24,7 +26,6 @@ from app.services.ai_parser import _AI_TEXT_LIMIT, _SYSTEM_PROMPT, _build_import
 logger = logging.getLogger(__name__)
 
 _OPENAI_BASE_URL = "https://api.openai.com/v1"
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 _EXTERNAL_AI_TIMEOUT = 120  # seconds
 
 
@@ -57,12 +58,19 @@ def _call_openai(
         content = resp.json()["choices"][0]["message"]["content"]
         parsed: dict = json.loads(content)
         return _build_import_result(parsed)
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "OpenAI API call failed: HTTP %s – %s",
+            exc.response.status_code,
+            exc.response.text[:500],
+        )
+        return None
     except Exception as exc:
-        logger.debug("OpenAI API call failed: %s", exc)
+        logger.warning("OpenAI API call failed: %s", exc)
         return None
 
 
-# ── Google Gemini ─────────────────────────────────────────────────────────────
+# ── Google Gemini (official SDK) ──────────────────────────────────────────────
 
 
 def _call_gemini(
@@ -70,47 +78,43 @@ def _call_gemini(
     api_key: str,
     model: str,
     image_bytes: Optional[bytes] = None,
-    mime_type: str = "image/jpeg",
 ) -> Optional[ImportResult]:
-    """POST to the Google Gemini generateContent endpoint."""
-    try:
-        parts: list[dict] = []
-        if image_bytes:
-            b64 = base64.b64encode(image_bytes).decode()
-            parts.append(
-                {
-                    "inline_data": {
-                        "mime_type": mime_type,
-                        "data": b64,
-                    }
-                }
-            )
-        parts.append({"text": user_text})
+    """Call the Google Gemini API via the official ``google-generativeai`` SDK.
 
-        resp = httpx.post(
-            f"{_GEMINI_BASE_URL}/models/{model}:generateContent",
-            params={"key": api_key},
-            json={
-                "system_instruction": {
-                    "parts": [{"text": _SYSTEM_PROMPT}]
-                },
-                "contents": [{"parts": parts}],
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "temperature": 0.1,
-                    "maxOutputTokens": 2048,
-                },
-            },
-            headers={"Content-Type": "application/json"},
-            timeout=_EXTERNAL_AI_TIMEOUT,
+    When *image_bytes* are provided the image is opened with ``PIL.Image``
+    first, which transparently converts HEIC/HEIF and other exotic formats into
+    a representation the SDK can send.  This is more reliable than passing raw
+    bytes with an explicit MIME type, and matches the approach recommended in
+    Google's own documentation.
+    """
+    try:
+        import google.generativeai as genai
+        from PIL import Image
+
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(
+            model_name=model,
+            system_instruction=_SYSTEM_PROMPT,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        content = data["candidates"][0]["content"]["parts"][0]["text"]
-        parsed: dict = json.loads(content)
+
+        parts: list[str | Image.Image] = []
+        if image_bytes:
+            img = Image.open(io.BytesIO(image_bytes))
+            parts.append(img)
+        parts.append(user_text)
+
+        response = gemini_model.generate_content(
+            parts,
+            generation_config={
+                "response_mime_type": "application/json",
+                "temperature": 0.1,
+                "max_output_tokens": 2048,
+            },
+        )
+        parsed: dict = json.loads(response.text)
         return _build_import_result(parsed)
     except Exception as exc:
-        logger.debug("Gemini API call failed: %s", exc)
+        logger.warning("Gemini API call failed: %s", exc)
         return None
 
 
@@ -196,7 +200,6 @@ def parse_image_with_external_ai(
             api_key,
             model,
             image_bytes=image_bytes,
-            mime_type=mime_type,
         )
 
     logger.warning("Unknown external AI provider: %s", provider)

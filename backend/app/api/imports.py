@@ -29,7 +29,7 @@ instead of the locally hosted model.
 """
 
 import logging
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
@@ -75,8 +75,29 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 # Raise it (e.g. to 0.80) to route almost everything through vision.
 _OCR_QUALITY_THRESHOLD = 0.60
 
-# Tuple of (provider, api_key, model) for external AI calls, or None.
-_ExternalAI = Optional[tuple[str, str, str]]
+
+class _ExtAIConfig(NamedTuple):
+    """External AI configuration (provider name, API key, model name)."""
+
+    provider: str
+    api_key: str
+    model: str
+
+
+# Typed external AI config, or None when not configured / not requested.
+_ExternalAI = Optional[_ExtAIConfig]
+
+
+def _ext_ai_warning(ext_ai: _ExtAIConfig, context: str) -> str:
+    """Return a German-language warning string for an external AI failure.
+
+    *context* is either ``"Bild"`` or ``"Dokument"``.
+    """
+    return (
+        f"Die externe KI ({ext_ai.provider} / {ext_ai.model}) konnte das {context} nicht verarbeiten "
+        f"(z. B. falscher Modellname oder ungültiger API-Key). "
+        f"Das Ergebnis stammt vom lokalen Fallback und ist möglicherweise unvollständig."
+    )
 
 
 def _is_pdf(file: UploadFile) -> bool:
@@ -233,6 +254,7 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
 
     result: ImportResult | None = None
     chat_completions_failed = False
+    ext_ai_failed = False
 
     logger.debug("PDF import: OCR quality=%.2f", ocr_quality)
 
@@ -257,6 +279,8 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
         result = _text_ai(raw_text)
         if result:
             logger.debug("PDF parsed via text AI (quality=%.2f)", ocr_quality)
+        elif ext_ai:
+            ext_ai_failed = True
 
     # Step 2 – Vision AI on rendered first page (for scanned / complex PDFs)
     if result is None and _has_vision():
@@ -267,12 +291,16 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
                 logger.debug("PDF parsed via vision AI (rendered first page)")
             else:
                 chat_completions_failed = True
+                if ext_ai:
+                    ext_ai_failed = True
 
     # Step 3 – Text AI fallback on raw text
     if result is None and raw_text.strip():
         result = _text_ai(raw_text, skip_chat=chat_completions_failed)
         if result:
             logger.debug("PDF parsed via text AI (fallback)")
+        elif ext_ai:
+            ext_ai_failed = True
 
     # Step 4 – Heuristic fallback
     if result is None:
@@ -285,6 +313,14 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
                 ingredients=[],
                 steps=[],
             )
+
+    if ext_ai_failed and result is not None and ext_ai:
+        logger.warning(
+            "External AI (%s / %s) failed for PDF import; heuristic fallback used.",
+            ext_ai.provider,
+            ext_ai.model,
+        )
+        result.import_warning = _ext_ai_warning(ext_ai, "Dokument")
 
     # Restore embedded photo extracted by PyMuPDF
     if image_url and not result.image_url:
@@ -312,6 +348,7 @@ def _parse_image(
     locally hosted model.
     """
     result: ImportResult | None = None
+    ext_ai_failed = False
 
     # Step 1 – Run OCR to assess quality (always needed for text-path fallback)
     raw_text = extract_image_text(content, handwriting)
@@ -344,18 +381,24 @@ def _parse_image(
         result = _text_ai(raw_text)
         if result:
             logger.debug("Image parsed via text AI after OCR (quality=%.2f)", ocr_quality)
+        elif ext_ai:
+            ext_ai_failed = True
 
     # Step 3 – Vision AI (for complex images, handwriting, or after text-AI miss)
     if result is None and _has_vision():
         result = _vision_ai()
         if result:
             logger.debug("Image parsed via vision AI")
+        elif ext_ai:
+            ext_ai_failed = True
 
     # Step 4 – Text AI on OCR output (fallback when vision was tried first)
     if result is None and raw_text.strip():
         result = _text_ai(raw_text)
         if result:
             logger.debug("Image parsed via text AI (fallback after vision miss)")
+        elif ext_ai:
+            ext_ai_failed = True
 
     # Step 5 – Heuristic fallback
     if result is None:
@@ -365,11 +408,19 @@ def _parse_image(
             result = ImportResult(title="Kein Text erkannt", ingredients=[], steps=[])
         logger.debug("Image parsed via heuristic parser")
 
+    if ext_ai_failed and result is not None and ext_ai:
+        logger.warning(
+            "External AI (%s / %s) failed for image import; heuristic fallback used.",
+            ext_ai.provider,
+            ext_ai.model,
+        )
+        result.import_warning = _ext_ai_warning(ext_ai, "Bild")
+
     return result
 
 
 def _get_external_ai(db: Session, use_external: bool) -> _ExternalAI:
-    """Return the external AI config tuple when *use_external* is True and configured.
+    """Return the external AI config when *use_external* is True and configured.
 
     Returns ``None`` when external AI is disabled, not requested, or not
     fully configured (missing provider / key / model).
@@ -378,7 +429,11 @@ def _get_external_ai(db: Session, use_external: bool) -> _ExternalAI:
         return None
     s = get_settings(db)
     if s.ext_ai_provider and s.ext_ai_api_key and s.ext_ai_model:
-        return (s.ext_ai_provider, s.ext_ai_api_key, s.ext_ai_model)
+        return _ExtAIConfig(
+            provider=s.ext_ai_provider,
+            api_key=s.ext_ai_api_key,
+            model=s.ext_ai_model,
+        )
     return None
 
 

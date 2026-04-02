@@ -39,6 +39,7 @@ type ImportResult = {
   prep_time?: number;
   cook_time?: number;
   servings?: number;
+  import_warning?: string;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -597,6 +598,14 @@ export default function ImportPage() {
               <Check size={18} className="text-green-500" />
               <h3 className="font-semibold">Rezept erkannt</h3>
             </div>
+
+            {/* External AI warning */}
+            {result.import_warning && (
+              <div className="flex items-start gap-2 mb-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
+                <span className="shrink-0 mt-0.5">⚠️</span>
+                <span>{result.import_warning}</span>
+              </div>
+            )}
 
             {/* Title */}
             <p className="font-medium text-lg mb-1">{result.title || "Unbekanntes Rezept"}</p>

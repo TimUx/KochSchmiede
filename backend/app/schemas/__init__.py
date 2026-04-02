@@ -194,6 +194,9 @@ class ImportResult(BaseModel):
     prep_time: Optional[int] = None
     cook_time: Optional[int] = None
     servings: Optional[int] = None
+    # Populated when a non-fatal issue occurred during import (e.g. external AI
+    # failed and the result is a heuristic fallback).
+    import_warning: Optional[str] = None
 
 
 # ─── Site Settings ────────────────────────────────────────────────────────────
