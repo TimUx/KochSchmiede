@@ -56,6 +56,7 @@ def write_settings(
 
     # External AI: if provider is explicitly set to "" clear all ext AI fields;
     # otherwise only update the fields that were provided.
+    force_null: set[str] = set()
     if payload.ext_ai_provider == "":
         # Clear the entire external AI configuration.
         kwargs["ext_ai_provider"] = None
@@ -63,7 +64,6 @@ def write_settings(
         kwargs["ext_ai_model"] = None
         force_null = {"ext_ai_provider", "ext_ai_api_key", "ext_ai_model"}
     else:
-        force_null: set[str] = set()
         if payload.ext_ai_provider is not None:
             kwargs["ext_ai_provider"] = payload.ext_ai_provider
         # Allow clearing the model by sending ""
@@ -71,8 +71,8 @@ def write_settings(
             kwargs["ext_ai_model"] = payload.ext_ai_model or None
             if not payload.ext_ai_model:
                 force_null.add("ext_ai_model")
-        # Only update API key when a non-empty value is provided (avoids
-        # accidentally clearing a key when the frontend omits the field).
+        # Only update API key when a non-empty value is provided – an empty
+        # field means "keep the existing key" (the frontend never pre-fills it).
         if payload.ext_ai_api_key:
             kwargs["ext_ai_api_key"] = payload.ext_ai_api_key
 

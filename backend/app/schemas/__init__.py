@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
@@ -215,18 +215,30 @@ class SiteSettingsOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @model_validator(mode="before")
     @classmethod
-    def model_validate(cls, obj, **kwargs):
-        if hasattr(obj, "ext_ai_api_key"):
-            # Inject the key-configured flag before standard validation.
-            data = {
-                k: getattr(obj, k, None)
-                for k in cls.model_fields
-                if k != "ext_ai_key_configured"
+    def _inject_key_configured(cls, data: object) -> object:
+        """Populate ``ext_ai_key_configured`` from the ORM row's ``ext_ai_api_key``."""
+        if hasattr(data, "ext_ai_api_key"):
+            # ORM model instance – build a plain dict so Pydantic can map fields.
+            return {
+                "site_mode": data.site_mode,
+                "registration_mode": data.registration_mode,
+                "ssrf_protection": data.ssrf_protection,
+                "logo_light_url": data.logo_light_url,
+                "logo_dark_url": data.logo_dark_url,
+                "favicon_url": data.favicon_url,
+                "appicon_url": data.appicon_url,
+                "ext_ai_provider": data.ext_ai_provider,
+                "ext_ai_model": data.ext_ai_model,
+                "ext_ai_key_configured": bool(data.ext_ai_api_key),
             }
-            data["ext_ai_key_configured"] = bool(obj.ext_ai_api_key)
-            return super().model_validate(data, **kwargs)
-        return super().model_validate(obj, **kwargs)
+        # Already a dict (e.g. from a test or explicit construction)
+        if isinstance(data, dict) and "ext_ai_api_key" in data:
+            out = dict(data)
+            out["ext_ai_key_configured"] = bool(out.pop("ext_ai_api_key", None))
+            return out
+        return data
 
 
 class SiteSettingsUpdate(BaseModel):

@@ -239,6 +239,8 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
     # Helpers that dispatch to either external or local AI
     def _text_ai(text: str, skip_chat: bool = False) -> ImportResult | None:
         if ext_ai:
+            # External AI does not have a chat-completions retry distinction;
+            # skip_chat is only relevant for the local Ollama backend.
             return parse_with_external_ai(text, *ext_ai)
         return parse_with_ai(text, skip_chat_completions=skip_chat)
 

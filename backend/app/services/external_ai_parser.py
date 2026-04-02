@@ -16,6 +16,8 @@ import json
 import logging
 from typing import Optional
 
+import httpx
+
 from app.schemas import ImportResult
 from app.services.ai_parser import _AI_TEXT_LIMIT, _SYSTEM_PROMPT, _build_import_result
 
@@ -36,8 +38,6 @@ def _call_openai(
 ) -> Optional[ImportResult]:
     """POST to the OpenAI Chat Completions endpoint."""
     try:
-        import httpx
-
         resp = httpx.post(
             f"{_OPENAI_BASE_URL}/chat/completions",
             json={
@@ -74,8 +74,6 @@ def _call_gemini(
 ) -> Optional[ImportResult]:
     """POST to the Google Gemini generateContent endpoint."""
     try:
-        import httpx
-
         parts: list[dict] = []
         if image_bytes:
             b64 = base64.b64encode(image_bytes).decode()

@@ -27,6 +27,8 @@ import {
   Upload,
   RotateCcw,
   Bot,
+  HelpCircle,
+  ExternalLink,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -115,6 +117,40 @@ function Toggle({
   );
 }
 
+// ─── AI Help content ──────────────────────────────────────────────────────────
+
+const AI_HELP: Record<
+  string,
+  { title: string; steps: string[]; link: string; linkLabel: string }
+> = {
+  openai: {
+    title: "OpenAI API-Schlüssel erstellen",
+    steps: [
+      "Öffne platform.openai.com und melde dich an (oder erstelle ein kostenloses Konto).",
+      "Klicke oben rechts auf dein Profilbild → „API keys" (oder gehe direkt zu platform.openai.com/api-keys).",
+      "Klicke auf „+ Create new secret key", vergib einen Namen (z. B. „KochSchmiede") und bestätige.",
+      "Kopiere den angezeigten Schlüssel (er beginnt mit „sk-…") – er wird nur einmal angezeigt!",
+      "Füge den Schlüssel oben in das Feld „API-Schlüssel" ein.",
+      "Empfohlenes Modell: gpt-4o (Vision + Text) oder gpt-4o-mini (günstiger).",
+    ],
+    link: "https://platform.openai.com/api-keys",
+    linkLabel: "platform.openai.com/api-keys",
+  },
+  gemini: {
+    title: "Google Gemini API-Schlüssel erstellen",
+    steps: [
+      "Öffne aistudio.google.com und melde dich mit deinem Google-Konto an.",
+      "Klicke links in der Seitenleiste auf „Get API key" (oder „API-Schlüssel abrufen").",
+      "Wähle „Create API key in new project" oder wähle ein bestehendes Google-Cloud-Projekt.",
+      "Kopiere den generierten Schlüssel (er beginnt mit „AIza…").",
+      "Füge den Schlüssel oben in das Feld „API-Schlüssel" ein.",
+      "Empfohlene Modelle: gemini-1.5-flash (schnell, günstig) oder gemini-1.5-pro (höchste Qualität).",
+    ],
+    link: "https://aistudio.google.com/app/apikey",
+    linkLabel: "aistudio.google.com/app/apikey",
+  },
+};
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
@@ -163,6 +199,7 @@ export default function AdminPage() {
   const [savingExtAi, setSavingExtAi] = useState(false);
   const [extAiError, setExtAiError] = useState<string | null>(null);
   const [extAiSuccess, setExtAiSuccess] = useState(false);
+  const [showAiHelp, setShowAiHelp] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!localStorage.getItem("ks_token")) {
@@ -694,15 +731,27 @@ export default function AdminPage() {
                       <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
                         Anbieter
                       </label>
-                      <select
-                        value={extAiProvider}
-                        onChange={(e) => { setExtAiProvider(e.target.value); setExtAiSuccess(false); }}
-                        className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                      >
-                        <option value="">– Anbieter wählen –</option>
-                        <option value="openai">OpenAI (ChatGPT)</option>
-                        <option value="gemini">Google Gemini</option>
-                      </select>
+                      <div className="flex gap-2">
+                        <select
+                          value={extAiProvider}
+                          onChange={(e) => { setExtAiProvider(e.target.value); setExtAiSuccess(false); }}
+                          className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        >
+                          <option value="">– Anbieter wählen –</option>
+                          <option value="openai">OpenAI (ChatGPT)</option>
+                          <option value="gemini">Google Gemini</option>
+                        </select>
+                        {extAiProvider && AI_HELP[extAiProvider] && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAiHelp(extAiProvider)}
+                            title="Hilfe: API-Schlüssel erstellen"
+                            className="px-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-200 dark:border-amber-800 transition shrink-0"
+                          >
+                            <HelpCircle size={16} />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Model */}
@@ -981,6 +1030,63 @@ export default function AdminPage() {
           </>
         )}
       </main>
+
+      {/* ── AI Help Modal ─────────────────────────────────────────────────── */}
+      {showAiHelp && AI_HELP[showAiHelp] && (() => {
+        const help = AI_HELP[showAiHelp];
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowAiHelp(null)}
+          >
+            <div
+              className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl shadow-xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                  <HelpCircle size={16} className="text-amber-500" />
+                </div>
+                <h3 className="font-semibold text-sm flex-1">{help.title}</h3>
+                <button
+                  onClick={() => setShowAiHelp(null)}
+                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Steps */}
+              <div className="px-5 py-4 space-y-3">
+                <ol className="space-y-2.5">
+                  {help.steps.map((step, i) => (
+                    <li key={i} className="flex gap-3 text-sm">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+                        {i + 1}
+                      </span>
+                      <span className="text-zinc-700 dark:text-zinc-300 leading-snug">{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* Link */}
+              <div className="px-5 pb-5">
+                <a
+                  href={help.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition"
+                >
+                  <ExternalLink size={15} />
+                  {help.linkLabel} öffnen
+                </a>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </AppShell>
   );
 }
