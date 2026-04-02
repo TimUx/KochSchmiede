@@ -45,12 +45,38 @@ def write_settings(
     db: Session = Depends(get_db),
     _admin=Depends(get_admin_user),
 ):
-    return update_settings(
-        db,
-        site_mode=payload.site_mode,
-        registration_mode=payload.registration_mode,
-        ssrf_protection=payload.ssrf_protection,
-    )
+    # Build kwargs – only pass fields that were explicitly provided.
+    kwargs: dict = {}
+    if payload.site_mode is not None:
+        kwargs["site_mode"] = payload.site_mode
+    if payload.registration_mode is not None:
+        kwargs["registration_mode"] = payload.registration_mode
+    if payload.ssrf_protection is not None:
+        kwargs["ssrf_protection"] = payload.ssrf_protection
+
+    # External AI: if provider is explicitly set to "" clear all ext AI fields;
+    # otherwise only update the fields that were provided.
+    force_null: set[str] = set()
+    if payload.ext_ai_provider == "":
+        # Clear the entire external AI configuration.
+        kwargs["ext_ai_provider"] = None
+        kwargs["ext_ai_api_key"] = None
+        kwargs["ext_ai_model"] = None
+        force_null = {"ext_ai_provider", "ext_ai_api_key", "ext_ai_model"}
+    else:
+        if payload.ext_ai_provider is not None:
+            kwargs["ext_ai_provider"] = payload.ext_ai_provider
+        # Allow clearing the model by sending ""
+        if payload.ext_ai_model is not None:
+            kwargs["ext_ai_model"] = payload.ext_ai_model or None
+            if not payload.ext_ai_model:
+                force_null.add("ext_ai_model")
+        # Only update API key when a non-empty value is provided – an empty
+        # field means "keep the existing key" (the frontend never pre-fills it).
+        if payload.ext_ai_api_key:
+            kwargs["ext_ai_api_key"] = payload.ext_ai_api_key
+
+    return update_settings(db, _force_null_keys=force_null, **kwargs)
 
 
 # ─── Logo / Icon Management ───────────────────────────────────────────────────

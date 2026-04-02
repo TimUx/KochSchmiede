@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
@@ -207,14 +207,49 @@ class SiteSettingsOut(BaseModel):
     logo_dark_url: Optional[str] = None
     favicon_url: Optional[str] = None
     appicon_url: Optional[str] = None
+    # External AI provider – provider name + model are returned; the API key
+    # is never exposed, only a boolean flag indicating whether it is set.
+    ext_ai_provider: Optional[str] = None
+    ext_ai_model: Optional[str] = None
+    ext_ai_key_configured: bool = False
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_key_configured(cls, data: object) -> object:
+        """Populate ``ext_ai_key_configured`` from the ORM row's ``ext_ai_api_key``."""
+        if hasattr(data, "ext_ai_api_key"):
+            # ORM model instance – build a plain dict so Pydantic can map fields.
+            return {
+                "site_mode": data.site_mode,
+                "registration_mode": data.registration_mode,
+                "ssrf_protection": data.ssrf_protection,
+                "logo_light_url": data.logo_light_url,
+                "logo_dark_url": data.logo_dark_url,
+                "favicon_url": data.favicon_url,
+                "appicon_url": data.appicon_url,
+                "ext_ai_provider": data.ext_ai_provider,
+                "ext_ai_model": data.ext_ai_model,
+                "ext_ai_key_configured": bool(data.ext_ai_api_key),
+            }
+        # Already a dict (e.g. from a test or explicit construction)
+        if isinstance(data, dict) and "ext_ai_api_key" in data:
+            out = dict(data)
+            out["ext_ai_key_configured"] = bool(out.pop("ext_ai_api_key", None))
+            return out
+        return data
 
 
 class SiteSettingsUpdate(BaseModel):
     site_mode: Optional[Literal["public", "private"]] = None
     registration_mode: Optional[Literal["open", "admin_only"]] = None
     ssrf_protection: Optional[bool] = None
+    # External AI configuration – set all three to configure; send
+    # ext_ai_provider="" to clear the external AI configuration entirely.
+    ext_ai_provider: Optional[str] = None
+    ext_ai_api_key: Optional[str] = None
+    ext_ai_model: Optional[str] = None
 
 
 # ─── Recipe Share ─────────────────────────────────────────────────────────────

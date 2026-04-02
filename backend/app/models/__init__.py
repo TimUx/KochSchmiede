@@ -181,3 +181,9 @@ class SiteSettings(Base):
     logo_dark_url = Column(String(512), nullable=True)
     favicon_url = Column(String(512), nullable=True)
     appicon_url = Column(String(512), nullable=True)
+    # Optional external AI provider for import (e.g. "openai", "gemini").
+    # When configured, users can choose to use the external AI during import
+    # instead of the locally hosted model.
+    ext_ai_provider = Column(String(20), nullable=True)
+    ext_ai_api_key = Column(String(512), nullable=True)
+    ext_ai_model = Column(String(100), nullable=True)
