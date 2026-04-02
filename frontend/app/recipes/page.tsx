@@ -17,6 +17,7 @@ interface ApiRecipe {
   prep_time: number | null;
   servings: number | null;
   tags: string[];
+  owner_username: string | null;
 }
 
 function RecipesContent() {
@@ -191,6 +192,7 @@ function RecipesContent() {
                   prep_time: recipe.prep_time ?? undefined,
                   servings: recipe.servings ?? undefined,
                   tags: recipe.tags,
+                  owner_username: recipe.owner_username ?? undefined,
                 }}
               />
             ))}

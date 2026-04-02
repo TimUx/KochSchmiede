@@ -171,6 +171,7 @@ export default function AdminPage() {
       if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
         // Token is invalid, expired, or user lost admin rights – clear it and go to login
         localStorage.removeItem("ks_token");
+        localStorage.removeItem("ks_username");
         router.replace("/login");
       } else {
         setError(e instanceof Error ? e.message : "Fehler beim Laden");

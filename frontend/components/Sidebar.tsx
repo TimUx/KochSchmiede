@@ -34,6 +34,7 @@ export default function Sidebar() {
 
   function handleLogout() {
     localStorage.removeItem("ks_token");
+    localStorage.removeItem("ks_username");
     setLoggedIn(false);
     router.push("/login");
   }
