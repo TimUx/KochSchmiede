@@ -76,6 +76,7 @@ export default function LoginPage() {
 
       const { access_token } = await res.json();
       localStorage.setItem("ks_token", access_token);
+      localStorage.setItem("ks_username", username);
       router.push("/");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login fehlgeschlagen");

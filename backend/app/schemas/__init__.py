@@ -141,6 +141,7 @@ class RecipeOut(BaseModel):
     source_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    owner_username: Optional[str] = None
     ingredients: list[IngredientOut] = []
     ingredient_groups: list[IngredientGroupOut] = []
     steps: list[StepOut] = []

@@ -71,6 +71,7 @@ def _recipe_to_out(recipe: Recipe) -> RecipeOut:
         source_url=recipe.source_url,
         created_at=recipe.created_at,
         updated_at=recipe.updated_at,
+        owner_username=recipe.owner.username if recipe.owner else None,
         ingredients=[
             IngredientOut(id=i.id, amount=i.amount, unit=i.unit, name=i.name, position=i.position)
             for i in ungrouped
@@ -111,7 +112,7 @@ def list_recipes(
     if site_settings.site_mode == "public":
         pass  # show all recipes without owner filter
     elif current_user:
-        query = query.filter(Recipe.owner_id == current_user.id)
+        pass  # authenticated users see all recipes
     else:
         raise HTTPException(status_code=401, detail="Authentication required")
 
@@ -197,7 +198,7 @@ def get_recipe(
 
     if site_settings.site_mode == "public":
         return _recipe_to_out(recipe)
-    if current_user and recipe.owner_id == current_user.id:
+    if current_user:
         return _recipe_to_out(recipe)
     raise HTTPException(status_code=401, detail="Authentication required")
 

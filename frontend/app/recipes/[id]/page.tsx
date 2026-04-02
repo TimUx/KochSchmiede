@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   Clock,
   Users,
+  User,
   Edit,
   Heart,
   Share2,
@@ -47,6 +48,7 @@ interface Recipe {
   cook_time: number | null;
   servings: number | null;
   source_url: string | null;
+  owner_username: string | null;
   tags: string[];
   ingredients: Ingredient[];
   ingredient_groups: IngredientGroup[];
@@ -76,6 +78,11 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
   const [error, setError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [currentServings, setCurrentServings] = useState(4);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCurrentUsername(localStorage.getItem("ks_username"));
+  }, []);
 
   useEffect(() => {
     const fetchRecipe = async () => {
@@ -107,6 +114,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
   }, [id]);
 
   const ratio = recipe ? currentServings / (recipe.servings ?? 4) : 1;
+  const isOwner = !!recipe && !!currentUsername && recipe.owner_username === currentUsername;
 
   return (
     <AppShell>
@@ -167,20 +175,29 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
               <button className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-rose-500">
                 <Heart size={18} />
               </button>
-              <button
-                onClick={() => setShareOpen(true)}
-                className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-amber-400 transition"
-                title="Rezept teilen"
-              >
-                <Share2 size={18} />
-              </button>
-              <Link href={`/recipes/${id}/edit`} className="p-2 rounded-xl bg-amber-500 text-white">
-                <Edit size={18} />
-              </Link>
+              {isOwner && (
+                <button
+                  onClick={() => setShareOpen(true)}
+                  className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-amber-400 transition"
+                  title="Rezept teilen"
+                >
+                  <Share2 size={18} />
+                </button>
+              )}
+              {isOwner && (
+                <Link href={`/recipes/${id}/edit`} className="p-2 rounded-xl bg-amber-500 text-white">
+                  <Edit size={18} />
+                </Link>
+              )}
             </div>
           </div>
 
           <h1 className="text-2xl font-bold mb-2">{recipe.title}</h1>
+          {recipe.owner_username && (
+            <p className="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500 mb-3" aria-label={`Rezept von ${recipe.owner_username}`}>
+              <User size={12} aria-hidden="true" /> von {recipe.owner_username}
+            </p>
+          )}
           {recipe.description && (
             <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-4">{recipe.description}</p>
           )}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Clock, Users } from "lucide-react";
+import { Clock, Users, User } from "lucide-react";
 
 interface Recipe {
   id: string;
@@ -10,6 +10,7 @@ interface Recipe {
   prep_time?: number;
   servings?: number;
   tags?: string[];
+  owner_username?: string;
 }
 
 export default function RecipeCard({ recipe }: { recipe: Recipe }) {
@@ -45,6 +46,11 @@ export default function RecipeCard({ recipe }: { recipe: Recipe }) {
             {recipe.servings && (
               <span className="flex items-center gap-1">
                 <Users size={12} /> {recipe.servings}
+              </span>
+            )}
+            {recipe.owner_username && (
+              <span className="flex items-center gap-1 ml-auto" aria-label={`Rezept von ${recipe.owner_username}`}>
+                <User size={12} aria-hidden="true" /> {recipe.owner_username}
               </span>
             )}
           </div>
