@@ -29,6 +29,26 @@ _OPENAI_BASE_URL = "https://api.openai.com/v1"
 _EXTERNAL_AI_TIMEOUT = 120  # seconds
 
 
+def _safe_json_loads(text: str) -> dict:
+    """Parse *text* as JSON, tolerating markdown code-fence wrappers.
+
+    Some models (especially newer Gemini previews) may wrap their JSON output
+    in a ``\`\`\`json … \`\`\`` block even when the JSON response MIME type is
+    requested.  This helper strips those fences before handing the string to
+    :func:`json.loads`.
+    """
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        # Remove opening fence (```json or ```)
+        first_newline = stripped.find("\n")
+        if first_newline != -1:
+            stripped = stripped[first_newline + 1:]
+        # Remove closing fence
+        if stripped.endswith("```"):
+            stripped = stripped[: stripped.rfind("```")]
+    return json.loads(stripped.strip())
+
+
 # ── OpenAI ────────────────────────────────────────────────────────────────────
 
 
@@ -56,7 +76,7 @@ def _call_openai(
         )
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
-        parsed: dict = json.loads(content)
+        parsed: dict = _safe_json_loads(content)
         return _build_import_result(parsed)
     except httpx.HTTPStatusError as exc:
         logger.warning(
@@ -108,10 +128,10 @@ def _call_gemini(
             generation_config={
                 "response_mime_type": "application/json",
                 "temperature": 0.1,
-                "max_output_tokens": 2048,
+                "max_output_tokens": 8192,
             },
         )
-        parsed: dict = json.loads(response.text)
+        parsed: dict = _safe_json_loads(response.text)
         return _build_import_result(parsed)
     except Exception as exc:
         logger.warning("Gemini API call failed: %s", exc)

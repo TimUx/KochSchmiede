@@ -144,11 +144,32 @@ const AI_HELP: Record<
       'Wähle „Create API key in new project" oder wähle ein bestehendes Google-Cloud-Projekt.',
       'Kopiere den generierten Schlüssel (er beginnt mit „AIza…").',
       'Füge den Schlüssel oben in das Feld „API-Schlüssel" ein.',
-      "Empfohlene Modelle: gemini-1.5-flash (schnell, günstig) oder gemini-1.5-pro (höchste Qualität).",
+      "Empfohlenes Modell: gemini-2.5-flash (schnell, günstig) oder gemini-2.5-pro (höchste Qualität).",
     ],
     link: "https://aistudio.google.com/app/apikey",
     linkLabel: "aistudio.google.com/app/apikey",
   },
+};
+
+// ─── Available models per provider ────────────────────────────────────────────
+
+const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+  openai: [
+    { value: "gpt-4o",       label: "GPT-4o (empfohlen)" },
+    { value: "gpt-4o-mini",  label: "GPT-4o mini (schnell & günstig)" },
+    { value: "gpt-4-turbo",  label: "GPT-4 Turbo" },
+    { value: "gpt-4",        label: "GPT-4" },
+    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
+  ],
+  gemini: [
+    { value: "gemini-2.5-flash",        label: "Gemini 2.5 Flash (empfohlen)" },
+    { value: "gemini-2.5-pro",          label: "Gemini 2.5 Pro" },
+    { value: "gemini-3-flash-preview",  label: "Gemini 3 Flash Preview" },
+    { value: "gemini-3.1-pro-preview",  label: "Gemini 3.1 Pro Preview" },
+    { value: "gemini-2.0-flash",        label: "Gemini 2.0 Flash" },
+    { value: "gemini-1.5-flash",        label: "Gemini 1.5 Flash (veraltet)" },
+    { value: "gemini-1.5-pro",          label: "Gemini 1.5 Pro (veraltet)" },
+  ],
 };
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -734,7 +755,19 @@ export default function AdminPage() {
                       <div className="flex gap-2">
                         <select
                           value={extAiProvider}
-                          onChange={(e) => { setExtAiProvider(e.target.value); setExtAiSuccess(false); }}
+                          onChange={(e) => {
+                            const p = e.target.value;
+                            setExtAiProvider(p);
+                            setExtAiSuccess(false);
+                            if (p && PROVIDER_MODELS[p]) {
+                              const models = PROVIDER_MODELS[p];
+                              if (!models.find((m) => m.value === extAiModel)) {
+                                setExtAiModel(models[0].value);
+                              }
+                            } else {
+                              setExtAiModel("");
+                            }
+                          }}
                           className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                         >
                           <option value="">– Anbieter wählen –</option>
@@ -759,13 +792,23 @@ export default function AdminPage() {
                       <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
                         Modell
                       </label>
-                      <input
-                        type="text"
+                      <select
                         value={extAiModel}
                         onChange={(e) => { setExtAiModel(e.target.value); setExtAiSuccess(false); }}
-                        placeholder={extAiProvider === "gemini" ? "gemini-1.5-flash" : "gpt-4o"}
-                        className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                      />
+                        disabled={!extAiProvider}
+                        className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-50"
+                      >
+                        {!extAiProvider && (
+                          <option value="">– zuerst Anbieter wählen –</option>
+                        )}
+                        {extAiProvider && PROVIDER_MODELS[extAiProvider]?.map((m) => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                        {extAiProvider && extAiModel &&
+                          !PROVIDER_MODELS[extAiProvider]?.find((m) => m.value === extAiModel) && (
+                          <option key={extAiModel} value={extAiModel}>{extAiModel} (gespeichert)</option>
+                        )}
+                      </select>
                     </div>
 
                     {/* API Key */}
