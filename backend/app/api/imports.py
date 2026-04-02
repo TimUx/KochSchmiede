@@ -22,9 +22,14 @@ Model selection is fully automatic:
   LM Studio where only one model is loaded).
 - Models are auto-pulled from Ollama on first use when none are present
   (controlled by ``OLLAMA_AUTO_PULL``, default ``true``).
+
+When ``use_external_ai=true`` is passed by the client the pipeline uses
+the external AI provider configured by the admin (OpenAI or Google Gemini)
+instead of the locally hosted model.
 """
 
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
@@ -35,6 +40,10 @@ from app.services.ai_parser import (
     has_vision_ai,
     parse_image_with_ai,
     parse_with_ai,
+)
+from app.services.external_ai_parser import (
+    parse_image_with_external_ai,
+    parse_with_external_ai,
 )
 from app.services.ocr import (
     extract_image_text,
@@ -65,6 +74,9 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 # and save vision model resources at the cost of lower accuracy on complex inputs.
 # Raise it (e.g. to 0.80) to route almost everything through vision.
 _OCR_QUALITY_THRESHOLD = 0.60
+
+# Tuple of (provider, api_key, model) for external AI calls, or None.
+_ExternalAI = Optional[tuple[str, str, str]]
 
 
 def _is_pdf(file: UploadFile) -> bool:
@@ -200,7 +212,7 @@ def _assess_ocr_quality(text: str) -> float:
     return parse_score + merge_score + noise_score + caps_score
 
 
-def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
+def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) -> ImportResult:
     """Full parse pipeline for a PDF file.
 
     Routing strategy (fastest/cheapest first):
@@ -212,6 +224,9 @@ def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
        → Vision AI on the rendered first page (best for complex layouts).
     4. Fallback: Text AI on whatever text was extracted.
     5. Heuristic parser.
+
+    When *ext_ai* is provided the external AI backend (OpenAI / Gemini) is
+    used in place of the locally hosted model for every AI step.
     """
     raw_text, image_url = extract_pdf_text_and_image(content, handwriting)
     ocr_quality = _assess_ocr_quality(raw_text)
@@ -221,17 +236,31 @@ def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
 
     logger.debug("PDF import: OCR quality=%.2f", ocr_quality)
 
+    # Helpers that dispatch to either external or local AI
+    def _text_ai(text: str, skip_chat: bool = False) -> ImportResult | None:
+        if ext_ai:
+            return parse_with_external_ai(text, *ext_ai)
+        return parse_with_ai(text, skip_chat_completions=skip_chat)
+
+    def _vision_ai(img: bytes, mime: str = "image/jpeg") -> ImportResult | None:
+        if ext_ai:
+            return parse_image_with_external_ai(img, mime, *ext_ai)
+        return parse_image_with_ai(img, mime_type=mime)
+
+    def _has_vision() -> bool:
+        return bool(ext_ai) or has_vision_ai()
+
     # Step 1 – Text AI on extracted text (fast path for clean PDFs)
     if raw_text.strip() and ocr_quality >= _OCR_QUALITY_THRESHOLD:
-        result = parse_with_ai(raw_text)
+        result = _text_ai(raw_text)
         if result:
             logger.debug("PDF parsed via text AI (quality=%.2f)", ocr_quality)
 
     # Step 2 – Vision AI on rendered first page (for scanned / complex PDFs)
-    if result is None and has_vision_ai():
+    if result is None and _has_vision():
         page_img = render_pdf_first_page(content)
         if page_img:
-            result = parse_image_with_ai(page_img, mime_type="image/jpeg")
+            result = _vision_ai(page_img)
             if result:
                 logger.debug("PDF parsed via vision AI (rendered first page)")
             else:
@@ -239,7 +268,7 @@ def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
 
     # Step 3 – Text AI fallback on raw text
     if result is None and raw_text.strip():
-        result = parse_with_ai(raw_text, skip_chat_completions=chat_completions_failed)
+        result = _text_ai(raw_text, skip_chat=chat_completions_failed)
         if result:
             logger.debug("PDF parsed via text AI (fallback)")
 
@@ -263,7 +292,7 @@ def _parse_pdf(content: bytes, handwriting: bool) -> ImportResult:
 
 
 def _parse_image(
-    content: bytes, mime_type: str, handwriting: bool
+    content: bytes, mime_type: str, handwriting: bool, ext_ai: _ExternalAI = None
 ) -> ImportResult:
     """Full parse pipeline for an image file.
 
@@ -276,6 +305,9 @@ def _parse_image(
        → Vision AI (send raw image to vision model, no prior OCR).
     4. If vision AI is unavailable or fails → Text AI on OCR output.
     5. Heuristic fallback (always available).
+
+    When *ext_ai* is provided the external AI backend is used instead of the
+    locally hosted model.
     """
     result: ImportResult | None = None
 
@@ -291,21 +323,35 @@ def _parse_image(
         "vision-first" if use_vision_first else "text-first",
     )
 
+    # Helpers that dispatch to either external or local AI
+    def _text_ai(text: str) -> ImportResult | None:
+        if ext_ai:
+            return parse_with_external_ai(text, *ext_ai)
+        return parse_with_ai(text)
+
+    def _vision_ai() -> ImportResult | None:
+        if ext_ai:
+            return parse_image_with_external_ai(content, mime_type, *ext_ai)
+        return parse_image_with_ai(content, mime_type=mime_type)
+
+    def _has_vision() -> bool:
+        return bool(ext_ai) or has_vision_ai()
+
     # Step 2 – Text AI (fast path for clean OCR)
     if not use_vision_first and raw_text.strip():
-        result = parse_with_ai(raw_text)
+        result = _text_ai(raw_text)
         if result:
             logger.debug("Image parsed via text AI after OCR (quality=%.2f)", ocr_quality)
 
     # Step 3 – Vision AI (for complex images, handwriting, or after text-AI miss)
-    if result is None and has_vision_ai():
-        result = parse_image_with_ai(content, mime_type=mime_type)
+    if result is None and _has_vision():
+        result = _vision_ai()
         if result:
             logger.debug("Image parsed via vision AI")
 
     # Step 4 – Text AI on OCR output (fallback when vision was tried first)
     if result is None and raw_text.strip():
-        result = parse_with_ai(raw_text)
+        result = _text_ai(raw_text)
         if result:
             logger.debug("Image parsed via text AI (fallback after vision miss)")
 
@@ -318,6 +364,20 @@ def _parse_image(
         logger.debug("Image parsed via heuristic parser")
 
     return result
+
+
+def _get_external_ai(db: Session, use_external: bool) -> _ExternalAI:
+    """Return the external AI config tuple when *use_external* is True and configured.
+
+    Returns ``None`` when external AI is disabled, not requested, or not
+    fully configured (missing provider / key / model).
+    """
+    if not use_external:
+        return None
+    s = get_settings(db)
+    if s.ext_ai_provider and s.ext_ai_api_key and s.ext_ai_model:
+        return (s.ext_ai_provider, s.ext_ai_api_key, s.ext_ai_model)
+    return None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -356,16 +416,20 @@ def import_from_url(
 async def import_from_file(
     file: UploadFile = File(...),
     handwriting: bool = Query(False, description="Enable enhanced OCR for handwritten recipes"),
+    use_external_ai: bool = Query(False, description="Use the configured external AI provider (OpenAI / Gemini)"),
+    db: Session = Depends(get_db),
 ):
     """Import a single PDF or image file."""
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
 
+    ext_ai = _get_external_ai(db, use_external_ai)
+
     if _is_pdf(file):
-        return _parse_pdf(content, handwriting)
+        return _parse_pdf(content, handwriting, ext_ai=ext_ai)
     elif _is_image(file):
-        return _parse_image(content, file.content_type or "image/jpeg", handwriting)
+        return _parse_image(content, file.content_type or "image/jpeg", handwriting, ext_ai=ext_ai)
     else:
         raise HTTPException(status_code=415, detail="Unsupported file type. Use PDF or image.")
 
@@ -374,10 +438,14 @@ async def import_from_file(
 async def import_from_files(
     files: list[UploadFile] = File(...),
     handwriting: bool = Query(False, description="Enable enhanced OCR for handwritten recipes"),
+    use_external_ai: bool = Query(False, description="Use the configured external AI provider (OpenAI / Gemini)"),
+    db: Session = Depends(get_db),
 ):
     """Import multiple files representing pages of a single recipe (multi-page support)."""
     if not files:
         raise HTTPException(status_code=422, detail="No files provided")
+
+    ext_ai = _get_external_ai(db, use_external_ai)
 
     all_texts: list[str] = []
     all_image_urls: list[str | None] = []
@@ -413,6 +481,20 @@ async def import_from_files(
     first_image_url = next((u for u in all_image_urls if u), None)
     result: ImportResult | None = None
 
+    # Helpers that dispatch to external or local AI
+    def _text_ai(text: str) -> ImportResult | None:
+        if ext_ai:
+            return parse_with_external_ai(text, *ext_ai)
+        return parse_with_ai(text)
+
+    def _vision_ai(img_bytes: bytes, mime: str) -> ImportResult | None:
+        if ext_ai:
+            return parse_image_with_external_ai(img_bytes, mime, *ext_ai)
+        return parse_image_with_ai(img_bytes, mime_type=mime)
+
+    def _has_vision() -> bool:
+        return bool(ext_ai) or has_vision_ai()
+
     # Determine whether any image page needs vision processing.
     # Vision is used when handwriting mode is active OR when any image file
     # scored below the OCR quality threshold (magazine scans, complex layouts).
@@ -426,18 +508,18 @@ async def import_from_files(
     # This gives significantly better accuracy for scanned magazines, handwritten
     # recipe cards, and other complex multi-page layouts where combined garbled
     # OCR text would mislead the text AI.
-    if use_vision_for_images and has_vision_ai():
+    if use_vision_for_images and _has_vision():
         page_results: list[ImportResult] = []
         for t, img in zip(all_texts, image_data):
             if img is not None:
                 img_content, mime = img
-                pr = parse_image_with_ai(img_content, mime_type=mime)
+                pr = _vision_ai(img_content, mime)
                 if pr is None and t.strip():
-                    pr = parse_with_ai(t)
+                    pr = _text_ai(t)
                 if pr is None and t.strip():
                     pr = parse_ocr_text(t)
             elif t.strip():
-                pr = parse_with_ai(t) or parse_ocr_text(t)
+                pr = _text_ai(t) or parse_ocr_text(t)
             else:
                 pr = None
             if pr is not None:
@@ -451,7 +533,7 @@ async def import_from_files(
     # Text AI on combined OCR text (fast path for clean documents / vision miss)
     if result is None:
         combined_text = "\n\n".join(t for t in all_texts if t.strip())
-        result = parse_with_ai(combined_text)
+        result = _text_ai(combined_text)
 
     # Heuristic fallback: parse each page separately and merge
     if result is None:
@@ -470,10 +552,13 @@ async def import_from_files(
 async def import_from_camera(
     file: UploadFile = File(...),
     handwriting: bool = Query(False, description="Enable enhanced OCR for handwritten recipes"),
+    use_external_ai: bool = Query(False, description="Use the configured external AI provider (OpenAI / Gemini)"),
+    db: Session = Depends(get_db),
 ):
     """Process a photo taken from the camera."""
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large")
 
-    return _parse_image(content, file.content_type or "image/jpeg", handwriting)
+    ext_ai = _get_external_ai(db, use_external_ai)
+    return _parse_image(content, file.content_type or "image/jpeg", handwriting, ext_ai=ext_ai)

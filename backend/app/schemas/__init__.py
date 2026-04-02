@@ -207,14 +207,37 @@ class SiteSettingsOut(BaseModel):
     logo_dark_url: Optional[str] = None
     favicon_url: Optional[str] = None
     appicon_url: Optional[str] = None
+    # External AI provider – provider name + model are returned; the API key
+    # is never exposed, only a boolean flag indicating whether it is set.
+    ext_ai_provider: Optional[str] = None
+    ext_ai_model: Optional[str] = None
+    ext_ai_key_configured: bool = False
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        if hasattr(obj, "ext_ai_api_key"):
+            # Inject the key-configured flag before standard validation.
+            data = {
+                k: getattr(obj, k, None)
+                for k in cls.model_fields
+                if k != "ext_ai_key_configured"
+            }
+            data["ext_ai_key_configured"] = bool(obj.ext_ai_api_key)
+            return super().model_validate(data, **kwargs)
+        return super().model_validate(obj, **kwargs)
 
 
 class SiteSettingsUpdate(BaseModel):
     site_mode: Optional[Literal["public", "private"]] = None
     registration_mode: Optional[Literal["open", "admin_only"]] = None
     ssrf_protection: Optional[bool] = None
+    # External AI configuration – set all three to configure; send
+    # ext_ai_provider="" to clear the external AI configuration entirely.
+    ext_ai_provider: Optional[str] = None
+    ext_ai_api_key: Optional[str] = None
+    ext_ai_model: Optional[str] = None
 
 
 # ─── Recipe Share ─────────────────────────────────────────────────────────────

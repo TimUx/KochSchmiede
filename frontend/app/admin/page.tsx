@@ -26,6 +26,7 @@ import {
   Image,
   Upload,
   RotateCcw,
+  Bot,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,6 +39,9 @@ interface SiteSettings {
   logo_dark_url?: string | null;
   favicon_url?: string | null;
   appicon_url?: string | null;
+  ext_ai_provider?: string | null;
+  ext_ai_model?: string | null;
+  ext_ai_key_configured?: boolean;
 }
 
 interface UserRecord {
@@ -151,6 +155,15 @@ export default function AdminPage() {
     appicon: useRef<HTMLInputElement>(null),
   };
 
+  // External AI configuration state
+  const [extAiProvider, setExtAiProvider] = useState("");
+  const [extAiModel, setExtAiModel] = useState("");
+  const [extAiKey, setExtAiKey] = useState("");
+  const [showExtAiKey, setShowExtAiKey] = useState(false);
+  const [savingExtAi, setSavingExtAi] = useState(false);
+  const [extAiError, setExtAiError] = useState<string | null>(null);
+  const [extAiSuccess, setExtAiSuccess] = useState(false);
+
   const load = useCallback(async () => {
     if (!localStorage.getItem("ks_token")) {
       router.replace("/login");
@@ -165,6 +178,9 @@ export default function AdminPage() {
         apiFetch("/api/admin/units"),
       ]);
       setSettings(s);
+      setExtAiProvider(s.ext_ai_provider ?? "");
+      setExtAiModel(s.ext_ai_model ?? "");
+      setExtAiKey(""); // never pre-fill the key field
       setUsers(u);
       setUnits(un);
     } catch (e: unknown) {
@@ -198,6 +214,59 @@ export default function AdminPage() {
       setError(e instanceof Error ? e.message : "Fehler beim Speichern");
     } finally {
       setSavingSettings(false);
+    }
+  }
+
+  async function saveExtAi() {
+    setExtAiError(null);
+    setExtAiSuccess(false);
+    if (!extAiProvider || !extAiModel) {
+      setExtAiError("Bitte Anbieter und Modell angeben.");
+      return;
+    }
+    if (!extAiKey && !settings?.ext_ai_key_configured) {
+      setExtAiError("Bitte API-Schlüssel eingeben.");
+      return;
+    }
+    setSavingExtAi(true);
+    try {
+      const payload: Record<string, string> = {
+        ext_ai_provider: extAiProvider,
+        ext_ai_model: extAiModel,
+      };
+      if (extAiKey) payload.ext_ai_api_key = extAiKey;
+      const updated = await apiFetch("/api/admin/settings", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      setSettings(updated);
+      setExtAiKey("");
+      setExtAiSuccess(true);
+    } catch (e: unknown) {
+      setExtAiError(e instanceof Error ? e.message : "Fehler beim Speichern");
+    } finally {
+      setSavingExtAi(false);
+    }
+  }
+
+  async function clearExtAi() {
+    if (!confirm("Externe KI-Konfiguration wirklich entfernen?")) return;
+    setSavingExtAi(true);
+    setExtAiError(null);
+    setExtAiSuccess(false);
+    try {
+      const updated = await apiFetch("/api/admin/settings", {
+        method: "PUT",
+        body: JSON.stringify({ ext_ai_provider: "" }),
+      });
+      setSettings(updated);
+      setExtAiProvider("");
+      setExtAiModel("");
+      setExtAiKey("");
+    } catch (e: unknown) {
+      setExtAiError(e instanceof Error ? e.message : "Fehler beim Entfernen");
+    } finally {
+      setSavingExtAi(false);
     }
   }
 
@@ -591,10 +660,114 @@ export default function AdminPage() {
                     })}
                   </div>
                 </div>
+
+                {/* External AI */}
+                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
+                    <h2 className="font-semibold text-sm flex items-center gap-2">
+                      <Bot size={16} className="text-amber-500" />
+                      Externe KI (Import)
+                    </h2>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      Optionaler API-Dienst für den Import (z.&nbsp;B. ChatGPT, Google Gemini).
+                      Besonders hilfreich für handgeschriebene Rezepte.
+                    </p>
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    {extAiError && (
+                      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl p-2 text-xs">
+                        <AlertCircle size={12} className="shrink-0" />
+                        <span className="flex-1">{extAiError}</span>
+                        <button onClick={() => setExtAiError(null)}><X size={12} /></button>
+                      </div>
+                    )}
+                    {extAiSuccess && (
+                      <div className="flex items-center gap-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 rounded-xl p-2 text-xs">
+                        <Check size={12} className="shrink-0" />
+                        Externe KI gespeichert.
+                      </div>
+                    )}
+
+                    {/* Provider */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                        Anbieter
+                      </label>
+                      <select
+                        value={extAiProvider}
+                        onChange={(e) => { setExtAiProvider(e.target.value); setExtAiSuccess(false); }}
+                        className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      >
+                        <option value="">– Anbieter wählen –</option>
+                        <option value="openai">OpenAI (ChatGPT)</option>
+                        <option value="gemini">Google Gemini</option>
+                      </select>
+                    </div>
+
+                    {/* Model */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                        Modell
+                      </label>
+                      <input
+                        type="text"
+                        value={extAiModel}
+                        onChange={(e) => { setExtAiModel(e.target.value); setExtAiSuccess(false); }}
+                        placeholder={extAiProvider === "gemini" ? "gemini-1.5-flash" : "gpt-4o"}
+                        className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+
+                    {/* API Key */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                        API-Schlüssel
+                        {settings?.ext_ai_key_configured && (
+                          <span className="ml-2 text-green-600 dark:text-green-400">(gespeichert)</span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showExtAiKey ? "text" : "password"}
+                          value={extAiKey}
+                          onChange={(e) => { setExtAiKey(e.target.value); setExtAiSuccess(false); }}
+                          placeholder={settings?.ext_ai_key_configured ? "Leer lassen, um gespeicherten Schlüssel zu behalten" : "sk-… oder AIza…"}
+                          className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowExtAiKey(!showExtAiKey)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                        >
+                          {showExtAiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={saveExtAi}
+                        disabled={savingExtAi}
+                        className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white py-2 rounded-xl text-sm font-medium transition"
+                      >
+                        {savingExtAi ? "Speichern…" : "Speichern"}
+                      </button>
+                      {settings?.ext_ai_key_configured && (
+                        <button
+                          onClick={clearExtAi}
+                          disabled={savingExtAi}
+                          title="Externe KI entfernen"
+                          className="px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-red-500 disabled:opacity-50 transition"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
-
-            {/* ── USERS TAB ── */}
             {activeTab === "users" && (
               <div>
                 <button

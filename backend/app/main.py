@@ -27,11 +27,14 @@ def _migrate_site_settings() -> None:
         ("logo_dark_url", "VARCHAR(512)"),
         ("favicon_url", "VARCHAR(512)"),
         ("appicon_url", "VARCHAR(512)"),
+        ("ext_ai_provider", "VARCHAR(20)"),
+        ("ext_ai_api_key", "VARCHAR(512)"),
+        ("ext_ai_model", "VARCHAR(100)"),
     ]
     # Allowed column names and types – validated before interpolation so that
     # accidental future changes to the list cannot introduce SQL injection.
     _allowed_names = {col for col, _ in _SITE_SETTINGS_NEW_COLUMNS}
-    _allowed_types = {"VARCHAR(512)"}
+    _allowed_types = {"VARCHAR(512)", "VARCHAR(20)", "VARCHAR(100)"}
     with engine.connect() as conn:
         for col_name, col_type in _SITE_SETTINGS_NEW_COLUMNS:
             if col_name not in _allowed_names or col_type not in _allowed_types:
@@ -153,6 +156,7 @@ def public_settings(db=None):
             "logo_dark_url": s.logo_dark_url,
             "favicon_url": s.favicon_url,
             "appicon_url": s.appicon_url,
+            "ext_ai_configured": bool(s.ext_ai_provider and s.ext_ai_api_key and s.ext_ai_model),
         }
     finally:
         db.close()
