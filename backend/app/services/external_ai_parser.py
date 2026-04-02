@@ -57,8 +57,15 @@ def _call_openai(
         content = resp.json()["choices"][0]["message"]["content"]
         parsed: dict = json.loads(content)
         return _build_import_result(parsed)
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "OpenAI API call failed: HTTP %s – %s",
+            exc.response.status_code,
+            exc.response.text[:500],
+        )
+        return None
     except Exception as exc:
-        logger.debug("OpenAI API call failed: %s", exc)
+        logger.warning("OpenAI API call failed: %s", exc)
         return None
 
 
@@ -109,8 +116,15 @@ def _call_gemini(
         content = data["candidates"][0]["content"]["parts"][0]["text"]
         parsed: dict = json.loads(content)
         return _build_import_result(parsed)
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Gemini API call failed: HTTP %s – %s",
+            exc.response.status_code,
+            exc.response.text[:500],
+        )
+        return None
     except Exception as exc:
-        logger.debug("Gemini API call failed: %s", exc)
+        logger.warning("Gemini API call failed: %s", exc)
         return None
 
 
