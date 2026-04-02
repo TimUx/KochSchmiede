@@ -88,6 +88,18 @@ class _ExtAIConfig(NamedTuple):
 _ExternalAI = Optional[_ExtAIConfig]
 
 
+def _ext_ai_warning(ext_ai: _ExtAIConfig, context: str) -> str:
+    """Return a German-language warning string for an external AI failure.
+
+    *context* is either ``"Bild"`` or ``"Dokument"``.
+    """
+    return (
+        f"Die externe KI ({ext_ai.provider} / {ext_ai.model}) konnte das {context} nicht verarbeiten "
+        f"(z. B. falscher Modellname oder ungültiger API-Key). "
+        f"Das Ergebnis stammt vom lokalen Fallback und ist möglicherweise unvollständig."
+    )
+
+
 def _is_pdf(file: UploadFile) -> bool:
     return (file.content_type or "") == ALLOWED_PDF_TYPE or (
         file.filename or ""
@@ -243,8 +255,6 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
     result: ImportResult | None = None
     chat_completions_failed = False
     ext_ai_failed = False
-    ext_ai_provider_name: str = ext_ai.provider if ext_ai else "externe KI"
-    ext_ai_model_name: str = ext_ai.model if ext_ai else ""
 
     logger.debug("PDF import: OCR quality=%.2f", ocr_quality)
 
@@ -304,17 +314,13 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
                 steps=[],
             )
 
-    if ext_ai_failed and result is not None:
+    if ext_ai_failed and result is not None and ext_ai:
         logger.warning(
             "External AI (%s / %s) failed for PDF import; heuristic fallback used.",
-            ext_ai_provider_name,
-            ext_ai_model_name,
+            ext_ai.provider,
+            ext_ai.model,
         )
-        result.import_warning = (
-            f"Die externe KI ({ext_ai_provider_name} / {ext_ai_model_name}) konnte das Dokument nicht verarbeiten "
-            f"(z. B. falscher Modellname oder ungültiger API-Key). "
-            f"Das Ergebnis stammt vom lokalen Fallback und ist möglicherweise unvollständig."
-        )
+        result.import_warning = _ext_ai_warning(ext_ai, "Dokument")
 
     # Restore embedded photo extracted by PyMuPDF
     if image_url and not result.image_url:
@@ -343,8 +349,6 @@ def _parse_image(
     """
     result: ImportResult | None = None
     ext_ai_failed = False
-    ext_ai_provider_name: str = ext_ai.provider if ext_ai else "externe KI"
-    ext_ai_model_name: str = ext_ai.model if ext_ai else ""
 
     # Step 1 – Run OCR to assess quality (always needed for text-path fallback)
     raw_text = extract_image_text(content, handwriting)
@@ -404,17 +408,13 @@ def _parse_image(
             result = ImportResult(title="Kein Text erkannt", ingredients=[], steps=[])
         logger.debug("Image parsed via heuristic parser")
 
-    if ext_ai_failed and result is not None:
+    if ext_ai_failed and result is not None and ext_ai:
         logger.warning(
             "External AI (%s / %s) failed for image import; heuristic fallback used.",
-            ext_ai_provider_name,
-            ext_ai_model_name,
+            ext_ai.provider,
+            ext_ai.model,
         )
-        result.import_warning = (
-            f"Die externe KI ({ext_ai_provider_name} / {ext_ai_model_name}) konnte das Bild nicht verarbeiten "
-            f"(z. B. falscher Modellname oder ungültiger API-Key). "
-            f"Das Ergebnis stammt vom lokalen Fallback und ist möglicherweise unvollständig."
-        )
+        result.import_warning = _ext_ai_warning(ext_ai, "Bild")
 
     return result
 
