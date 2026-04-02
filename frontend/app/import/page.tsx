@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
@@ -17,7 +17,6 @@ import {
   AlertCircle,
   Plus,
   X,
-  Bot,
 } from "lucide-react";
 
 type ImportTab = "url" | "file" | "camera";
@@ -157,19 +156,8 @@ export default function ImportPage() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
-  const [handwriting, setHandwriting] = useState(false);
-  const [useExternalAI, setUseExternalAI] = useState(false);
-  const [extAiConfigured, setExtAiConfigured] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // Load public settings once to check if external AI is configured.
-  useEffect(() => {
-    fetch(`${API}/api/settings/public`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.ext_ai_configured) setExtAiConfigured(true); })
-      .catch(() => {});
-  }, []);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -207,13 +195,9 @@ export default function ImportPage() {
     setResult(null);
     try {
       const formData = new FormData();
-      const params = new URLSearchParams();
-      if (handwriting) params.set("handwriting", "true");
-      if (useExternalAI) params.set("use_external_ai", "true");
-      const qs = params.toString() ? `?${params}` : "";
       if (files.length === 1) {
         formData.append("file", files[0]);
-        const data = await apiFetch(`/api/import/file${qs}`, {
+        const data = await apiFetch(`/api/import/file`, {
           method: "POST",
           body: formData,
         });
@@ -222,7 +206,7 @@ export default function ImportPage() {
         for (let i = 0; i < files.length; i++) {
           formData.append("files", files[i]);
         }
-        const data = await apiFetch(`/api/import/files${qs}`, {
+        const data = await apiFetch(`/api/import/files`, {
           method: "POST",
           body: formData,
         });
@@ -317,11 +301,7 @@ export default function ImportPage() {
         try {
           const formData = new FormData();
           formData.append("file", blob, "capture.jpg");
-          const params = new URLSearchParams();
-          if (handwriting) params.set("handwriting", "true");
-          if (useExternalAI) params.set("use_external_ai", "true");
-          const qs = params.toString() ? `?${params}` : "";
-          const data = await apiFetch(`/api/import/camera${qs}`, {
+          const data = await apiFetch(`/api/import/camera`, {
             method: "POST",
             body: formData,
           });
@@ -395,34 +375,6 @@ export default function ImportPage() {
     { id: "file" as const, icon: FileText, label: "PDF/Bild" },
     { id: "camera" as const, icon: Camera, label: "Kamera" },
   ];
-
-  // ── Handwriting toggle (shared between file & camera) ──────────────────────
-
-  const HandwritingToggle = () => (
-    <div className="space-y-2 mb-4">
-      <label className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={handwriting}
-          onChange={(e) => setHandwriting(e.target.checked)}
-          className="w-4 h-4 accent-amber-500"
-        />
-        Vision KI nutzen (Handschrift, Zeitschrift, komplexe Bilder)
-      </label>
-      {extAiConfigured && (
-        <label className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={useExternalAI}
-            onChange={(e) => setUseExternalAI(e.target.checked)}
-            className="w-4 h-4 accent-amber-500"
-          />
-          <Bot size={14} className="text-amber-500 shrink-0" />
-          Externe KI verwenden (ChatGPT / Gemini)
-        </label>
-      )}
-    </div>
-  );
 
   return (
     <AppShell>
@@ -505,7 +457,6 @@ export default function ImportPage() {
               Lade ein oder mehrere PDFs bzw. Fotos eines Rezepts hoch. Mehrere Dateien werden
               als mehrseitiges Rezept zusammengeführt. OCR extrahiert den Text automatisch.
             </p>
-            <HandwritingToggle />
             <input
               ref={fileRef}
               type="file"
@@ -546,7 +497,6 @@ export default function ImportPage() {
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
               Fotografiere ein Rezept direkt mit der Kamera.
             </p>
-            <HandwritingToggle />
             {!cameraActive ? (
               <div>
                 {cameraError && (

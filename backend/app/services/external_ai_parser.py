@@ -1,13 +1,13 @@
 """External AI parser – optional paid API backends (OpenAI, Google Gemini).
 
-These backends are used when configured in the admin settings and the user
-selects the external AI option during import.  Unlike the local LLM backend,
-these require an API key and make network requests to external services.
+These backends are used when configured in the admin settings and the upload
+complexity warrants them.  Unlike the local LLM backend, these require an API
+key and make network requests to external services.
 
 Supported providers
 -------------------
 * ``openai``  – OpenAI Chat Completions (gpt-4o, gpt-4o-mini, …)
-* ``gemini``  – Google Gemini via the official ``google-generativeai`` SDK
+* ``gemini``  – Google Gemini via the official ``google-genai`` SDK
                 (gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, …)
 """
 from __future__ import annotations
@@ -99,7 +99,7 @@ def _call_gemini(
     model: str,
     image_bytes: Optional[bytes] = None,
 ) -> Optional[ImportResult]:
-    """Call the Google Gemini API via the official ``google-generativeai`` SDK.
+    """Call the Google Gemini API via the official ``google-genai`` SDK.
 
     When *image_bytes* are provided the image is opened with ``PIL.Image``
     first, which transparently converts HEIC/HEIF and other exotic formats into
@@ -108,28 +108,27 @@ def _call_gemini(
     Google's own documentation.
     """
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
         from PIL import Image
 
-        genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel(
-            model_name=model,
-            system_instruction=_SYSTEM_PROMPT,
-        )
+        client = genai.Client(api_key=api_key)
 
-        parts: list[str | Image.Image] = []
+        parts: list = []
         if image_bytes:
             img = Image.open(io.BytesIO(image_bytes))
             parts.append(img)
         parts.append(user_text)
 
-        response = gemini_model.generate_content(
-            parts,
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1,
-                "max_output_tokens": 8192,
-            },
+        response = client.models.generate_content(
+            model=model,
+            contents=parts,
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.1,
+                max_output_tokens=8192,
+            ),
         )
         parsed: dict = _safe_json_loads(response.text)
         return _build_import_result(parsed)
