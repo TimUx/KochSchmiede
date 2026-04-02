@@ -88,9 +88,11 @@ const KNOWN_UNITS = [
  *  - Unicode fractions:      "½", "¼", "¾", "⅓", "⅔", …  (U+00BC–U+00BE, U+2150–U+215E)
  *  - mixed amounts:          "1½", "1 ½"
  *  - "n. B." / "n.B."       (nach Bedarf / to taste)
+ *  - approximate prefixes:   "ca.", "etwa", "~", "≈"  (stripped before parsing)
  */
 function parseIngredient(raw: string): { amount: string; unit: string; name: string } {
-  const trimmed = raw.trim();
+  // Strip leading approximate-quantity markers before any other parsing.
+  const trimmed = raw.trim().replace(/^(?:ca\.\s*|etwa\s*|[~≈]\s*)/i, "");
 
   // Unicode fraction characters (¼ ½ ¾ ⅓ ⅔ ⅛ ⅜ ⅝ ⅞ …)
   const FRAC = "\u00BC-\u00BE\u2150-\u215E";

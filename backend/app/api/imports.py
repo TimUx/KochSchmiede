@@ -455,13 +455,15 @@ def _best_image_ocr(image_bytes: bytes) -> str:
     normal_quality = _assess_ocr_quality(normal_text)
     if normal_quality < _HANDWRITING_RETRY_THRESHOLD:
         hw_text = extract_image_text(image_bytes, handwriting=True)
-        if hw_text.strip() and _assess_ocr_quality(hw_text) > normal_quality:
-            logger.debug(
-                "Handwriting OCR produced better result (hw=%.2f > normal=%.2f)",
-                _assess_ocr_quality(hw_text),
-                normal_quality,
-            )
-            return hw_text
+        if hw_text.strip():
+            hw_quality = _assess_ocr_quality(hw_text)
+            if hw_quality > normal_quality:
+                logger.debug(
+                    "Handwriting OCR produced better result (hw=%.2f > normal=%.2f)",
+                    hw_quality,
+                    normal_quality,
+                )
+                return hw_text
     return normal_text
 
 
