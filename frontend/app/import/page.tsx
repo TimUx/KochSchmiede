@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
@@ -189,6 +189,12 @@ export default function ImportPage() {
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraFileRef = useRef<HTMLInputElement>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    setIsMobile(navigator.maxTouchPoints > 0);
+  }, []);
 
   // ── Image search state ────────────────────────────────────────────────────
   const [imageSearchResults, setImageSearchResults] = useState<ImageSearchItem[]>([]);
@@ -570,7 +576,40 @@ export default function ImportPage() {
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
               Fotografiere ein Rezept direkt mit der Kamera.
             </p>
-            {!cameraActive ? (
+            {isMobile ? (
+              /* Mobile: use native camera via <input capture> */
+              <div>
+                <input
+                  ref={cameraFileRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      importFromFiles(e.target.files);
+                      // Reset so the same photo can be retaken
+                      if (cameraFileRef.current) cameraFileRef.current.value = "";
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => cameraFileRef.current?.click()}
+                  disabled={loading}
+                  className="w-full flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl text-zinc-500 hover:border-amber-400 transition"
+                >
+                  {loading ? (
+                    <Loader2 size={32} className="animate-spin text-amber-500" />
+                  ) : (
+                    <>
+                      <Camera size={32} />
+                      <span className="text-sm">Kamera öffnen & Foto aufnehmen</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : !cameraActive ? (
+              /* Desktop inactive: start getUserMedia stream */
               <div>
                 {cameraError && (
                   <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-600 dark:text-red-400">
@@ -586,6 +625,7 @@ export default function ImportPage() {
                 </button>
               </div>
             ) : (
+              /* Desktop active: show live preview + capture button */
               <div>
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <video ref={videoRef} autoPlay playsInline className="w-full rounded-2xl mb-3" />
