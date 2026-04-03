@@ -2,7 +2,8 @@
 
 > Self-hosted, mobile-first recipe management platform — built with Next.js (PWA) + FastAPI + PostgreSQL.
 
-🇩🇪 **[Deutsche Version → README.md](README.md)**
+🇩🇪 **[Deutsche Version → README.md](README.md)**  
+🛠️ **[Admin Guide → ADMIN.en.md](ADMIN.en.md)**
 
 ---
 
