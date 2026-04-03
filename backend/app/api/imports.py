@@ -8,7 +8,7 @@ the document type and content quality:
 1. **Clean PDF with extractable text** → text AI (fast, resource-efficient)
    → heuristic fallback.
 
-2. **Image with good OCR quality** (score ≥ 0.4, recipe keywords present,
+2. **Image with good OCR quality** (score ≥ threshold, recipe keywords present,
    low noise) → text AI on Tesseract output → heuristic fallback.
 
 3. **Complex image** (poor OCR quality: magazine scans, handwriting,
@@ -23,9 +23,8 @@ Model selection is fully automatic:
 - Models are auto-pulled from Ollama on first use when none are present
   (controlled by ``OLLAMA_AUTO_PULL``, default ``true``).
 
-When ``use_external_ai=true`` is passed by the client the pipeline uses
-the external AI provider configured by the admin (OpenAI or Google Gemini)
-instead of the locally hosted model.
+When an external AI provider (OpenAI or Google Gemini) is configured in the
+admin settings it is automatically used instead of the locally hosted model.
 """
 
 import logging
@@ -233,7 +232,7 @@ def _assess_ocr_quality(text: str) -> float:
     return parse_score + merge_score + noise_score + caps_score
 
 
-def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) -> ImportResult:
+def _parse_pdf(content: bytes, ext_ai: _ExternalAI = None) -> ImportResult:
     """Full parse pipeline for a PDF file.
 
     Routing strategy (fastest/cheapest first):
@@ -249,7 +248,7 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
     When *ext_ai* is provided the external AI backend (OpenAI / Gemini) is
     used in place of the locally hosted model for every AI step.
     """
-    raw_text, image_url = extract_pdf_text_and_image(content, handwriting)
+    raw_text, image_url = extract_pdf_text_and_image(content, False)
     ocr_quality = _assess_ocr_quality(raw_text)
 
     result: ImportResult | None = None
@@ -330,16 +329,17 @@ def _parse_pdf(content: bytes, handwriting: bool, ext_ai: _ExternalAI = None) ->
 
 
 def _parse_image(
-    content: bytes, mime_type: str, handwriting: bool, ext_ai: _ExternalAI = None
+    content: bytes, mime_type: str, ext_ai: _ExternalAI = None
 ) -> ImportResult:
     """Full parse pipeline for an image file.
 
     Routing strategy (fastest/cheapest first):
 
-    1. Run Tesseract OCR and score the output quality.
-    2. If OCR quality is good (score ≥ threshold) AND not handwriting mode:
+    1. Run Tesseract OCR (auto-detects handwriting by retrying with specialised
+       settings when the initial quality score is very low).
+    2. If OCR quality is good (score ≥ threshold):
        → Text AI (fast, resource-efficient).
-    3. If OCR quality is poor OR handwriting mode:
+    3. If OCR quality is poor (magazine scan, handwriting, complex layout):
        → Vision AI (send raw image to vision model, no prior OCR).
     4. If vision AI is unavailable or fails → Text AI on OCR output.
     5. Heuristic fallback (always available).
@@ -350,15 +350,14 @@ def _parse_image(
     result: ImportResult | None = None
     ext_ai_failed = False
 
-    # Step 1 – Run OCR to assess quality (always needed for text-path fallback)
-    raw_text = extract_image_text(content, handwriting)
+    # Step 1 – Run OCR to assess quality (auto-detects handwriting)
+    raw_text = _best_image_ocr(content)
     ocr_quality = _assess_ocr_quality(raw_text)
-    use_vision_first = handwriting or ocr_quality < _OCR_QUALITY_THRESHOLD
+    use_vision_first = ocr_quality < _OCR_QUALITY_THRESHOLD
 
     logger.debug(
-        "Image import: OCR quality=%.2f, handwriting=%s → %s",
+        "Image import: OCR quality=%.2f → %s",
         ocr_quality,
-        handwriting,
         "vision-first" if use_vision_first else "text-first",
     )
 
@@ -419,14 +418,12 @@ def _parse_image(
     return result
 
 
-def _get_external_ai(db: Session, use_external: bool) -> _ExternalAI:
-    """Return the external AI config when *use_external* is True and configured.
+def _get_external_ai(db: Session) -> _ExternalAI:
+    """Return the external AI config when fully configured, otherwise ``None``.
 
-    Returns ``None`` when external AI is disabled, not requested, or not
-    fully configured (missing provider / key / model).
+    External AI is used automatically whenever it is configured in the admin
+    settings – no per-request opt-in is required.
     """
-    if not use_external:
-        return None
     s = get_settings(db)
     if s.ext_ai_provider and s.ext_ai_api_key and s.ext_ai_model:
         return _ExtAIConfig(
@@ -435,6 +432,39 @@ def _get_external_ai(db: Session, use_external: bool) -> _ExternalAI:
             model=s.ext_ai_model,
         )
     return None
+
+
+# OCR quality threshold below which handwriting mode is also tried.
+# When the initial OCR quality falls below this value the image is re-OCR'd
+# with handwriting-optimised Tesseract settings and the better result is kept.
+_HANDWRITING_RETRY_THRESHOLD = 0.35
+
+
+def _best_image_ocr(image_bytes: bytes) -> str:
+    """Return the best OCR text for *image_bytes*.
+
+    Runs standard OCR first.  If the quality score is very low the image is
+    re-OCR'd with handwriting-optimised Tesseract settings and whichever
+    result scores higher is returned.
+    """
+    normal_text = extract_image_text(image_bytes, handwriting=False)
+    if not normal_text.strip():
+        # No text at all – try handwriting mode immediately
+        return extract_image_text(image_bytes, handwriting=True)
+
+    normal_quality = _assess_ocr_quality(normal_text)
+    if normal_quality < _HANDWRITING_RETRY_THRESHOLD:
+        hw_text = extract_image_text(image_bytes, handwriting=True)
+        if hw_text.strip():
+            hw_quality = _assess_ocr_quality(hw_text)
+            if hw_quality > normal_quality:
+                logger.debug(
+                    "Handwriting OCR produced better result (hw=%.2f > normal=%.2f)",
+                    hw_quality,
+                    normal_quality,
+                )
+                return hw_text
+    return normal_text
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -472,8 +502,6 @@ def import_from_url(
 @router.post("/file", response_model=ImportResult)
 async def import_from_file(
     file: UploadFile = File(...),
-    handwriting: bool = Query(False, description="Enable enhanced OCR for handwritten recipes"),
-    use_external_ai: bool = Query(False, description="Use the configured external AI provider (OpenAI / Gemini)"),
     db: Session = Depends(get_db),
 ):
     """Import a single PDF or image file."""
@@ -481,12 +509,12 @@ async def import_from_file(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
 
-    ext_ai = _get_external_ai(db, use_external_ai)
+    ext_ai = _get_external_ai(db)
 
     if _is_pdf(file):
-        return _parse_pdf(content, handwriting, ext_ai=ext_ai)
+        return _parse_pdf(content, ext_ai=ext_ai)
     elif _is_image(file):
-        return _parse_image(content, file.content_type or "image/jpeg", handwriting, ext_ai=ext_ai)
+        return _parse_image(content, file.content_type or "image/jpeg", ext_ai=ext_ai)
     else:
         raise HTTPException(status_code=415, detail="Unsupported file type. Use PDF or image.")
 
@@ -494,15 +522,13 @@ async def import_from_file(
 @router.post("/files", response_model=ImportResult)
 async def import_from_files(
     files: list[UploadFile] = File(...),
-    handwriting: bool = Query(False, description="Enable enhanced OCR for handwritten recipes"),
-    use_external_ai: bool = Query(False, description="Use the configured external AI provider (OpenAI / Gemini)"),
     db: Session = Depends(get_db),
 ):
     """Import multiple files representing pages of a single recipe (multi-page support)."""
     if not files:
         raise HTTPException(status_code=422, detail="No files provided")
 
-    ext_ai = _get_external_ai(db, use_external_ai)
+    ext_ai = _get_external_ai(db)
 
     all_texts: list[str] = []
     all_image_urls: list[str | None] = []
@@ -517,12 +543,12 @@ async def import_from_files(
                 detail=f"File '{file.filename}' is too large (max 20 MB per file)",
             )
         if _is_pdf(file):
-            raw_text, img_url = extract_pdf_text_and_image(content, handwriting)
+            raw_text, img_url = extract_pdf_text_and_image(content, False)
             all_texts.append(raw_text)
             all_image_urls.append(img_url)
             image_data.append(None)
         elif _is_image(file):
-            all_texts.append(extract_image_text(content, handwriting))
+            all_texts.append(_best_image_ocr(content))
             all_image_urls.append(None)
             image_data.append((content, file.content_type or "image/jpeg"))
         else:
@@ -553,9 +579,9 @@ async def import_from_files(
         return bool(ext_ai) or has_vision_ai()
 
     # Determine whether any image page needs vision processing.
-    # Vision is used when handwriting mode is active OR when any image file
-    # scored below the OCR quality threshold (magazine scans, complex layouts).
-    use_vision_for_images = handwriting or any(
+    # Vision is used when any image file scored below the OCR quality threshold
+    # (magazine scans, handwriting, complex layouts, etc.).
+    use_vision_for_images = any(
         _assess_ocr_quality(t) < _OCR_QUALITY_THRESHOLD
         for t, img in zip(all_texts, image_data)
         if img is not None
@@ -608,8 +634,6 @@ async def import_from_files(
 @router.post("/camera", response_model=ImportResult)
 async def import_from_camera(
     file: UploadFile = File(...),
-    handwriting: bool = Query(False, description="Enable enhanced OCR for handwritten recipes"),
-    use_external_ai: bool = Query(False, description="Use the configured external AI provider (OpenAI / Gemini)"),
     db: Session = Depends(get_db),
 ):
     """Process a photo taken from the camera."""
@@ -617,5 +641,5 @@ async def import_from_camera(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large")
 
-    ext_ai = _get_external_ai(db, use_external_ai)
-    return _parse_image(content, file.content_type or "image/jpeg", handwriting, ext_ai=ext_ai)
+    ext_ai = _get_external_ai(db)
+    return _parse_image(content, file.content_type or "image/jpeg", ext_ai=ext_ai)
