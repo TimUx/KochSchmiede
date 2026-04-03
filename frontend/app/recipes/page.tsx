@@ -4,8 +4,30 @@ import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import RecipeCard from "@/components/RecipeCard";
+import HelpButton from "@/components/HelpButton";
 import { Search, SlidersHorizontal, Loader2, ChefHat } from "lucide-react";
 import Link from "next/link";
+
+const RECIPES_HELP = {
+  title: "Alle Rezepte",
+  sections: [
+    {
+      items: [
+        "Hier siehst du alle gespeicherten Rezepte – eigene und geteilte.",
+        "Nutze die Suchleiste oben, um Rezepte nach Name oder Zutaten zu filtern.",
+        "Mit dem Filter-Symbol kannst du Rezepte nach Kategorien (Tags) eingrenzen.",
+        "Klicke auf ein Rezept, um die Details aufzurufen.",
+        "Über das +-Symbol in der Navigation erstellst du ein neues Rezept.",
+      ],
+    },
+  ],
+  docsLinks: [
+    {
+      label: "Benutzerhandbuch öffnen",
+      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
+    },
+  ],
+};
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -90,17 +112,20 @@ function RecipesContent() {
       <main className="w-full px-4 py-6 pb-24 lg:pb-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold">Alle Rezepte</h1>
-          <button
-            onClick={() => setShowFilter((v) => !v)}
-            className={`p-2 rounded-xl border transition ${
-              showFilter || activeTag
-                ? "bg-amber-500 border-amber-500 text-white"
-                : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300"
-            }`}
-            aria-label="Filter anzeigen"
-          >
-            <SlidersHorizontal size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <HelpButton content={RECIPES_HELP} />
+            <button
+              onClick={() => setShowFilter((v) => !v)}
+              className={`p-2 rounded-xl border transition ${
+                showFilter || activeTag
+                  ? "bg-amber-500 border-amber-500 text-white"
+                  : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300"
+              }`}
+              aria-label="Filter anzeigen"
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Search */}

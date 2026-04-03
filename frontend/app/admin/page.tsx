@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
 import Link from "next/link";
+import HelpButton from "@/components/HelpButton";
 import {
   Shield,
   Users,
@@ -169,6 +170,42 @@ const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
     { value: "gemini-2.0-flash",        label: "Gemini 2.0 Flash" },
     { value: "gemini-1.5-flash",        label: "Gemini 1.5 Flash (veraltet)" },
     { value: "gemini-1.5-pro",          label: "Gemini 1.5 Pro (veraltet)" },
+  ],
+};
+
+// ─── Page-level help content ──────────────────────────────────────────────────
+
+const ADMIN_HELP = {
+  title: "Admin-Bereich",
+  sections: [
+    {
+      heading: "Einstellungen",
+      items: [
+        "Sichtbarkeit: Lege fest, ob die App öffentlich oder nur für eingeloggte Nutzer sichtbar ist.",
+        "Registrierung: Erlaube freie Registrierung oder beschränke sie auf Admin-Einladungen.",
+        "Branding: Lade eigene Logos, Favicon und App-Icon hoch.",
+        "KI-Import: Konfiguriere einen externen KI-Anbieter (OpenAI / Gemini) für bessere Rezept-Erkennung.",
+      ],
+    },
+    {
+      heading: "Benutzerverwaltung",
+      items: [
+        "Lege neue Benutzer an oder deaktiviere bestehende Accounts.",
+        "Vergib oder entziehe Admin-Rechte.",
+      ],
+    },
+    {
+      heading: "Einheiten",
+      items: [
+        "Verwalte die Liste der verfügbaren Maßeinheiten für Zutaten.",
+      ],
+    },
+  ],
+  docsLinks: [
+    {
+      label: "Admin-Dokumentation öffnen",
+      url: "https://github.com/TimUx/KochSchmiede/blob/main/README.md",
+    },
   ],
 };
 
@@ -459,12 +496,13 @@ export default function AdminPage() {
           <Link href="/settings" className="text-zinc-500 dark:text-zinc-400">
             <ArrowLeft size={20} />
           </Link>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold">Admin-Bereich</h1>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               Webseiteneinstellungen und Benutzerverwaltung
             </p>
           </div>
+          <HelpButton content={ADMIN_HELP} />
         </div>
 
         {/* Error banner */}

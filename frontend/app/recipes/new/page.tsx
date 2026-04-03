@@ -7,8 +7,30 @@ import IngredientGroupEditor, {
   type Ingredient,
   type IngredientGroup,
 } from "@/components/IngredientGroupEditor";
+import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import { ArrowLeft, Plus, Trash2, Save, Loader2, AlertCircle, Tag, X } from "lucide-react";
+
+const NEW_RECIPE_HELP = {
+  title: "Neues Rezept erstellen",
+  sections: [
+    {
+      items: [
+        "Gib Titel und optional eine Beschreibung für dein Rezept ein.",
+        "Füge Zutaten mit Menge, Einheit und Name hinzu. Du kannst Zutatengruppen (z.B. 'Teig', 'Füllung') anlegen.",
+        "Trage die Zubereitungsschritte in der richtigen Reihenfolge ein.",
+        "Ergänze optional Tags (z.B. 'vegetarisch', 'schnell'), Portionen und Zeitangaben.",
+        "Klicke auf 'Speichern', um das Rezept zu sichern.",
+      ],
+    },
+  ],
+  docsLinks: [
+    {
+      label: "Benutzerhandbuch öffnen",
+      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
+    },
+  ],
+};
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -124,14 +146,17 @@ export default function NewRecipePage() {
           <Link href="/recipes" className="flex items-center gap-1 text-zinc-500 text-sm">
             <ArrowLeft size={16} /> Zurück
           </Link>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-sm font-medium transition"
-          >
-            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            {saving ? "Speichern…" : "Speichern"}
-          </button>
+          <div className="flex items-center gap-1">
+            <HelpButton content={NEW_RECIPE_HELP} />
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-sm font-medium transition"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              {saving ? "Speichern…" : "Speichern"}
+            </button>
+          </div>
         </div>
 
         <h1 className="text-xl font-bold mb-6">Neues Rezept</h1>

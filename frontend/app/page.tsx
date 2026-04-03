@@ -4,9 +4,31 @@ import { useState, useEffect, useMemo } from "react";
 import AppShell from "@/components/AppShell";
 import RecipeCard from "@/components/RecipeCard";
 import InstallPrompt from "@/components/InstallPrompt";
+import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PlusCircle, TrendingUp, Search, Loader2 } from "lucide-react";
+
+const DASHBOARD_HELP = {
+  title: "Dashboard – Übersicht",
+  sections: [
+    {
+      items: [
+        "Die Übersicht zeigt alle deine gespeicherten Rezepte auf einen Blick.",
+        "Nutze die Suchleiste, um Rezepte nach Titel oder Zutaten zu finden.",
+        "Die Statistik-Kacheln zeigen die Anzahl deiner Rezepte und Kategorien.",
+        "Über die Schnellaktionen kannst du ein neues Rezept erstellen oder Rezepte importieren.",
+        "Die neuesten Rezepte werden direkt auf der Startseite angezeigt.",
+      ],
+    },
+  ],
+  docsLinks: [
+    {
+      label: "Benutzerhandbuch öffnen",
+      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
+    },
+  ],
+};
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -79,11 +101,14 @@ export default function Dashboard() {
   return (
     <AppShell>
       <main className="w-full px-4 py-6 pb-24 lg:pb-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold mb-1">Meine Rezepte</h1>
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm">
-            Entdecke und verwalte deine Lieblingsrezepte
-          </p>
+        <div className="mb-6 flex items-start justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold mb-1">Meine Rezepte</h1>
+            <p className="text-zinc-500 dark:text-zinc-400 text-sm">
+              Entdecke und verwalte deine Lieblingsrezepte
+            </p>
+          </div>
+          <HelpButton content={DASHBOARD_HELP} />
         </div>
 
         {/* Search */}

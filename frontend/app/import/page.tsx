@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
+import HelpButton from "@/components/HelpButton";
 import {
   Globe,
   FileText,
@@ -146,6 +147,27 @@ function apiFetch(path: string, options: RequestInit = {}) {
     return res.status === 204 ? null : res.json();
   });
 }
+
+const IMPORT_HELP = {
+  title: "Import Center",
+  sections: [
+    {
+      items: [
+        "URL: Füge den Link zu einer Rezept-Webseite ein – KochSchmiede liest das Rezept automatisch aus.",
+        "Datei: Lade ein PDF oder Bild (JPG, PNG, HEIC) mit einem Rezept hoch. Die KI oder OCR extrahiert die Inhalte.",
+        "Kamera: Fotografiere ein Rezept direkt mit deiner Kamera.",
+        "Nach dem Import kannst du das erkannte Rezept prüfen und bei Bedarf korrigieren, bevor du es speicherst.",
+        "Für beste Ergebnisse bei Bildern: gutes Licht und möglichst geringe Verzerrung.",
+      ],
+    },
+  ],
+  docsLinks: [
+    {
+      label: "Benutzerhandbuch öffnen",
+      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
+    },
+  ],
+};
 
 export default function ImportPage() {
   const router = useRouter();
@@ -381,7 +403,10 @@ export default function ImportPage() {
   return (
     <AppShell>
       <main className="w-full px-4 py-6 pb-24 lg:pb-8">
-        <h1 className="text-2xl font-bold mb-2">Import Center</h1>
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h1 className="text-2xl font-bold">Import Center</h1>
+          <HelpButton content={IMPORT_HELP} />
+        </div>
         <p className="text-zinc-500 dark:text-zinc-400 text-sm mb-6">
           Rezepte importieren aus verschiedenen Quellen
         </p>

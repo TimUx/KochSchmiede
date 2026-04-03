@@ -4,6 +4,7 @@ import { useState, useEffect, use } from "react";
 
 import AppShell from "@/components/AppShell";
 import ShareDialog from "@/components/ShareDialog";
+import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -21,6 +22,28 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+
+const RECIPE_DETAIL_HELP = {
+  title: "Rezept-Detailansicht",
+  sections: [
+    {
+      items: [
+        "Hier siehst du alle Details eines Rezepts: Zutaten, Zubereitungsschritte und Metadaten.",
+        "Mit dem Drucker-Symbol kannst du das Rezept drucken oder als PDF speichern.",
+        "Mit dem Herz-Symbol kannst du ein Rezept als Favorit markieren.",
+        "Mit dem Teilen-Symbol kannst du einen Freigabe-Link erstellen.",
+        "Als Ersteller des Rezepts kannst du es über das Stift-Symbol bearbeiten.",
+        "Die Zutatenmengen passen sich an, wenn du die Portionszahl änderst.",
+      ],
+    },
+  ],
+  docsLinks: [
+    {
+      label: "Benutzerhandbuch öffnen",
+      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
+    },
+  ],
+};
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -165,6 +188,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
               <ArrowLeft size={16} /> Zurück
             </Link>
             <div className="flex gap-2">
+              <HelpButton content={RECIPE_DETAIL_HELP} />
               <button
                 onClick={() => window.print()}
                 title="Als PDF exportieren"
