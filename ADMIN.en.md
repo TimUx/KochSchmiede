@@ -202,6 +202,8 @@ The OCR quality score determines which stage is used:
 - **Magazine / handwriting / poor OCR** → vision LLM
 - **No LLM configured** → heuristic parser
 
+![Import Center – three sources: Website, PDF/Image, Camera](https://github.com/user-attachments/assets/b889f840-7029-4b84-8a2d-4f39e09d2a5b)
+
 ### 4.1 Option A: Ollama (recommended — fully local & free)
 
 ```bash
@@ -297,18 +299,26 @@ http://localhost:3000
 
 On the first visit, registration is open. The **first registered user** automatically receives admin rights.
 
-1. Navigate to **http://localhost:3000**
+1. Navigate to **http://localhost:3000** — the login page appears:
+
+   ![Login page](https://github.com/user-attachments/assets/6cb73c2c-6169-415f-a45c-82bd2f0d98be)
+
 2. Click **"Register"**
 3. Enter username, email, and password
-4. After registration you are automatically logged in as admin
+4. After registration you are automatically logged in as admin and see the dashboard:
+
+   ![Dashboard after first login](https://github.com/user-attachments/assets/ba5ddd9a-ca88-47df-892e-f435623e6459)
 
 > ⚠️ **Important**: Right after the first login, close registration in the Admin Interface if you don't want other users to self-register (Settings → User Registration → "Admin Only").
 
 ### 5.3 Open the Admin Interface
 
 1. Navigate to **Settings** (⚙️ icon in the navigation)
-2. Scroll to the **"Admin Area"** section
-3. Click **"Go to Admin Area"**
+2. As an admin you'll see the orange **"Admin Area"** button at the top:
+
+   ![Settings page with Admin Area button](https://github.com/user-attachments/assets/eab71125-3db4-49df-b855-89f321144808)
+
+3. Click **"Admin Area"**
 
 Or directly: **http://localhost:3000/admin**
 
@@ -319,6 +329,8 @@ Or directly: **http://localhost:3000/admin**
 The Admin Interface is available at `/admin` and is split into three tabs:
 
 ### 6.1 Settings
+
+![Admin Interface – Settings tab (visibility, registration, SSRF)](https://github.com/user-attachments/assets/9b8f548b-3cf7-4941-aea8-e0fb56f0af17)
 
 #### Site Visibility
 
@@ -346,6 +358,8 @@ SSRF (Server-Side Request Forgery) protection prevents the URL importer from rea
 > ⚠️ **Security warning**: Only disable SSRF protection if the instance is not reachable from the internet.
 
 #### Logos & Icons
+
+![Admin Interface – Logos & Icons and External AI](https://github.com/user-attachments/assets/ec0c4857-1fa4-4bb7-9e03-ab5c12610bb8)
 
 Here you can customise the visual identity of the application:
 
@@ -398,6 +412,8 @@ Here you configure optional external AI services for recipe recognition.
 
 ### 6.2 User Management
 
+![Admin Interface – Users tab](https://github.com/user-attachments/assets/9d5f6ab6-10af-45be-8960-69e6cded9515)
+
 #### Create a New User
 
 1. Navigate to the **"Users"** tab
@@ -421,6 +437,8 @@ Here you configure optional external AI services for recipe recognition.
 ---
 
 ### 6.3 Unit Management
+
+![Admin Interface – Units tab](https://github.com/user-attachments/assets/6d68698a-fda7-47c6-a493-425407037ea9)
 
 This tab manages measurement units for ingredients (e.g. "bag", "dash", "pinch").
 

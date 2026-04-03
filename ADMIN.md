@@ -202,6 +202,8 @@ Die Qualität des OCR-Ergebnisses entscheidet, welche Stufe verwendet wird:
 - **Zeitschrift / Handschrift / schlechte OCR** → Vision-LLM
 - **Kein LLM konfiguriert** → Heuristik-Parser
 
+![Import Center – drei Quellen: Website, PDF/Bild, Kamera](https://github.com/user-attachments/assets/b889f840-7029-4b84-8a2d-4f39e09d2a5b)
+
 ### 4.1 Option A: Ollama (empfohlen – vollständig lokal & kostenlos)
 
 ```bash
@@ -297,18 +299,26 @@ http://localhost:3000
 
 Beim ersten Aufruf ist die Registrierung offen. Der **erste registrierte Nutzer** erhält automatisch Admin-Rechte.
 
-1. Navigiere zu **http://localhost:3000**
+1. Navigiere zu **http://localhost:3000** – die Anmeldeseite erscheint:
+
+   ![Login-Seite](https://github.com/user-attachments/assets/6cb73c2c-6169-415f-a45c-82bd2f0d98be)
+
 2. Klicke auf **„Registrieren"**
 3. Gib Benutzername, E-Mail und Passwort ein
-4. Nach der Registrierung bist du automatisch als Admin eingeloggt
+4. Nach der Registrierung bist du automatisch als Admin eingeloggt und siehst das Dashboard:
+
+   ![Dashboard nach dem ersten Login](https://github.com/user-attachments/assets/ba5ddd9a-ca88-47df-892e-f435623e6459)
 
 > ⚠️ **Wichtig**: Schließe direkt nach dem ersten Login die Registrierung im Admin-Interface, wenn keine weiteren Nutzer sich selbst registrieren sollen (Einstellungen → Benutzerregistrierung → „Nur Admin").
 
 ### 5.3 Admin-Interface öffnen
 
 1. Navigiere zu **Einstellungen** (⚙️-Symbol in der Navigation)
-2. Scrolle zum Abschnitt **„Admin-Bereich"**
-3. Klicke auf **„Zum Admin-Bereich"**
+2. Als Admin siehst du oben den orangen **„Admin-Bereich"**-Button:
+
+   ![Einstellungen mit Admin-Bereich Button](https://github.com/user-attachments/assets/eab71125-3db4-49df-b855-89f321144808)
+
+3. Klicke auf **„Admin-Bereich"**
 
 Oder direkt: **http://localhost:3000/admin**
 
@@ -319,6 +329,8 @@ Oder direkt: **http://localhost:3000/admin**
 Das Admin-Interface ist erreichbar unter `/admin` und ist in drei Tabs aufgeteilt:
 
 ### 6.1 Einstellungen
+
+![Admin-Bereich – Einstellungen-Tab (Sichtbarkeit, Registrierung, SSRF)](https://github.com/user-attachments/assets/9b8f548b-3cf7-4941-aea8-e0fb56f0af17)
 
 #### Sichtbarkeit der Seite
 
@@ -346,6 +358,8 @@ Der SSRF-Schutz (Server-Side Request Forgery) verhindert, dass beim URL-Import i
 > ⚠️ **Sicherheitshinweis**: Deaktiviere den SSRF-Schutz nur, wenn die Instanz nicht aus dem Internet erreichbar ist.
 
 #### Logos & Icons
+
+![Admin-Bereich – Logos & Icons und Externe KI](https://github.com/user-attachments/assets/ec0c4857-1fa4-4bb7-9e03-ab5c12610bb8)
 
 Hier kannst du das Erscheinungsbild der Anwendung anpassen:
 
@@ -398,6 +412,8 @@ Hier konfigurierst du optionale externe KI-Dienste für die Rezepterkennung.
 
 ### 6.2 Benutzerverwaltung
 
+![Admin-Bereich – Benutzer-Tab](https://github.com/user-attachments/assets/9d5f6ab6-10af-45be-8960-69e6cded9515)
+
 #### Neuen Benutzer erstellen
 
 1. Navigiere zum Tab **„Benutzer"**
@@ -421,6 +437,8 @@ Hier konfigurierst du optionale externe KI-Dienste für die Rezepterkennung.
 ---
 
 ### 6.3 Einheitenverwaltung
+
+![Admin-Bereich – Einheiten-Tab](https://github.com/user-attachments/assets/6d68698a-fda7-47c6-a493-425407037ea9)
 
 In diesem Tab werden Maßeinheiten für Zutaten verwaltet (z.B. „Tüte", „Schuss", „Prise").
 
