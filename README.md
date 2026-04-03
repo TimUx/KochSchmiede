@@ -2,7 +2,7 @@
 
 > Self-hosted, mobile-first Rezeptverwaltung — gebaut mit Next.js (PWA) + FastAPI + PostgreSQL.
 
-📖 **[English version → README.en.md](README.en.md)**
+📖 **[English version → README.en.md](README.en.md)** &nbsp;|&nbsp; 📘 **[Benutzerhandbuch → USERGUIDE.md](USERGUIDE.md)**
 
 ---
 
