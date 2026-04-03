@@ -34,7 +34,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import ImportResult
+from app.schemas import ImageSearchItem, ImportResult
 from app.services.ai_parser import (
     has_vision_ai,
     parse_image_with_ai,
@@ -44,6 +44,7 @@ from app.services.external_ai_parser import (
     parse_image_with_external_ai,
     parse_with_external_ai,
 )
+from app.services.image_search import search_food_images
 from app.services.ocr import (
     extract_image_text,
     extract_pdf_text_and_image,
@@ -643,3 +644,17 @@ async def import_from_camera(
 
     ext_ai = _get_external_ai(db)
     return _parse_image(content, file.content_type or "image/jpeg", ext_ai=ext_ai)
+
+
+@router.get("/search-images", response_model=list[ImageSearchItem])
+def search_recipe_images(
+    query: str = Query(..., description="Search query, e.g. recipe title"),
+):
+    """Return up to 6 food images from the configured image search provider.
+
+    Returns an empty list when ``IMAGE_SEARCH_API_KEY`` is not set – the
+    frontend hides the image-search section in that case.
+    """
+    if not query.strip():
+        return []
+    return search_food_images(query.strip())

@@ -199,6 +199,15 @@ class ImportResult(BaseModel):
     import_warning: Optional[str] = None
 
 
+class ImageSearchItem(BaseModel):
+    """A single food image search result returned by :func:`search_food_images`."""
+
+    thumb_url: str
+    url: str
+    photographer: str = ""
+    source_url: str = ""
+
+
 # ─── Site Settings ────────────────────────────────────────────────────────────
 
 
