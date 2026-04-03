@@ -13,8 +13,8 @@ export const metadata: Metadata = {
     title: "KochSchmiede",
   },
   icons: {
-    icon: "/assets/kochschmiede_favicon_dark.png",
-    apple: "/assets/kochschmiede_appicon_dark.png",
+    icon: "/assets/kochschmiede_icon_192.png",
+    apple: "/assets/kochschmiede_icon_192.png",
   },
 };
 

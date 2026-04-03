@@ -10,13 +10,13 @@
   "categories": ["food", "lifestyle"],
   "icons": [
     {
-      "src": "/assets/kochschmiede_appicon_dark.png",
+      "src": "/assets/kochschmiede_icon_192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/assets/kochschmiede_appicon_dark.png",
+      "src": "/assets/kochschmiede_icon_512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
