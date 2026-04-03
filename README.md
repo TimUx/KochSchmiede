@@ -4,14 +4,45 @@
 
 📖 **[English version → README.en.md](README.en.md)**
 
+![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)
+![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3-06B6D4?logo=tailwindcss)
+![PWA](https://img.shields.io/badge/PWA-installierbar-5A0FC8?logo=pwa)
+![License](https://img.shields.io/badge/Lizenz-MIT-green)
+
+---
+
+## Inhaltsverzeichnis
+
+1. [Funktionen](#funktionen)
+2. [Screenshots](#screenshots)
+3. [App-Funktionen im Detail](#app-funktionen-im-detail)
+4. [Import Center](#-import-center)
+   - [Importmethoden](#importmethoden)
+   - [KI-Technologien](#ki-technologien)
+   - [Smart Routing](#smart-routing--welche-ki-für-welches-rezept)
+   - [KI konfigurieren](#ki-konfigurieren)
+5. [Schnellstart](#schnellstart)
+6. [Architektur & Technologie-Stack](#architektur--technologie-stack)
+7. [Entwicklung](#entwicklung)
+8. [Seiten](#seiten)
+9. [API-Endpunkte](#api-endpunkte)
+10. [Farbpalette](#farbpalette)
+11. [Lizenz](#lizenz)
+
 ---
 
 ## Funktionen
 
-- 📱 **Progressive Web App** — installierbar, Offline-Unterstützung, Kamera-Import
+- 📱 **Progressive Web App** — installierbar auf iOS/Android/Desktop, Offline-Unterstützung, Kamera-Import
 - 🌗 **Dark / Light Theme** mit automatischem Logo-Wechsel
 - 🌍 **Mehrsprachigkeit** — Deutsch (Standard) + Englisch
-- 📥 **Rezepte importieren** von Websites (URL-Scraping), PDFs, Bildern (OCR) oder der Kamera
+- 📥 **Rezepte importieren** von Websites (URL-Scraping), PDFs, Bildern (OCR) oder der Kamera — inklusive KI-gestützter Erkennung
+- 🤖 **KI-gestütztes Importieren** — lokal (Ollama / LM Studio) oder extern (OpenAI / Google Gemini) mit intelligentem Routing
 - 🔐 **JWT-Authentifizierung** — self-hosted & mehrere Benutzer
 - 🗄️ **PostgreSQL**-Datenbank mit vollständigem Rezept-CRUD
 - 🐳 **Docker Compose** — alles mit einem Befehl starten
@@ -20,6 +51,7 @@
 - 📤 **Export** — Rezepte als JSON sichern
 - 🖨️ **Druckansicht** — Rezepte druckerfreundlich ausgeben
 - 🔗 **Teilen** — Rezepte mit anderen teilen
+- 🖼️ **HEIC/HEIF-Unterstützung** — iPhone-Fotos direkt importieren
 
 ---
 
@@ -56,19 +88,167 @@ Das Dashboard zeigt eine Übersicht der zuletzt hinzugefügten Rezepte mit Stati
 - Detailansicht mit Zutaten, Zubereitungsschritten, Zeiten und Portionen
 - Rezepte erstellen, bearbeiten und löschen
 - Tags und Kategorien zur Strukturierung
-
-### 📥 Import Center
-Rezepte können aus drei Quellen importiert werden:
-- **Website**: URL einer Rezept-Seite eingeben — Zutaten und Schritte werden automatisch extrahiert
-- **PDF/Bild**: PDF oder Foto hochladen — OCR erkennt den Text automatisch
-- **Kamera**: Rezept direkt mit der Kamera fotografieren und scannen
+- Favoriten markieren
 
 ### ⚙️ Einstellungen
 - **Theme**: Hell/Dunkel-Modus umschalten
 - **Sprache**: Deutsch/Englisch wechseln
 - **Profil**: Name und Avatar verwalten
 - **Backup & Export**: Rezepte als JSON sichern
-- **Admin-Bereich**: Registrierung, Sichtbarkeit und Benutzerverwaltung
+- **Admin-Bereich**: Registrierung, Sichtbarkeit und Benutzerverwaltung, externe KI konfigurieren
+
+---
+
+## 📥 Import Center
+
+Das Import Center ist das Herzstück von KochSchmiede. Es unterstützt drei grundlegend verschiedene Importmethoden und kombiniert mehrere KI-Technologien, um aus nahezu jeder Quelle ein strukturiertes Rezept zu erstellen.
+
+### Importmethoden
+
+#### 1. 🌐 Website-Import (URL)
+URL einer Rezept-Seite eingeben — der eingebaute Web-Scraper extrahiert Titel, Zutaten und Zubereitungsschritte automatisch aus dem HTML-Quellcode der Seite (z. B. Chefkoch, Küchengötter, internationale Rezept-Blogs). Keine KI notwendig, funktioniert vollständig ohne externe Dienste.
+
+#### 2. 📄 Datei-Import (PDF / Bild)
+PDF oder Foto hochladen — unterstützte Formate: **JPEG, PNG, WebP, TIFF, HEIC/HEIF** (iPhone-Fotos) sowie **PDF**. Die maximale Dateigröße beträgt 20 MB. Je nach Qualität und Aufbau des Dokuments wählt die Pipeline automatisch die passende KI-Strategie (siehe [Smart Routing](#smart-routing--welche-ki-für-welches-rezept)).
+
+#### 3. 📷 Kamera-Import
+Rezept direkt mit der Gerätekamera fotografieren und sofort scannen — besonders praktisch auf Mobilgeräten. Das Foto wird wie ein regulärer Datei-Upload verarbeitet und durchläuft dieselbe KI-Pipeline.
+
+---
+
+### KI-Technologien
+
+Der Import nutzt drei unabhängige KI-Ebenen, die je nach verfügbarer Konfiguration und Dokumentqualität automatisch kombiniert werden:
+
+#### 🔤 Text-LLM (Sprach­modell auf Textbasis)
+Erhält den extrahierten Text (aus PDF-Textschicht oder Tesseract-OCR) und gibt strukturierte Rezeptdaten zurück. Schnell und ressourcenschonend.
+
+- **Lokal mit Ollama**: `llama3.2` (~2 GB) wird automatisch heruntergeladen, wenn kein Modell vorhanden ist.
+- **Lokal mit LM Studio**: Beliebiges OpenAI-kompatibles Modell — `LLM_MODEL` muss manuell gesetzt werden.
+- **OpenAI** (kostenpflichtig, extern): `gpt-4.1`, `gpt-4o`, `gpt-4o-mini` u. a. — nutzt die Responses API mit `json_schema` Structured Output für zuverlässige Extraktion.
+- **Google Gemini** (kostenpflichtig, extern): `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro` u. a. — nutzt das offizielle `google-genai` SDK.
+
+#### 👁️ Vision-LLM (multimodales Modell)
+Erhält das Bild direkt (kein Umweg über OCR) und erkennt Layout, Handschrift, Spalten und Zeitschriften-Designs deutlich besser als reine Texterkennung.
+
+- **Lokal mit Ollama**: `llava:7b` (~4,7 GB) wird automatisch heruntergeladen.
+- **OpenAI** (extern): Vollbild-Analyse mit `gpt-4o` / `gpt-4.1`.
+- **Google Gemini** (extern): Multimodale Analyse mit `gemini-1.5-flash` / `gemini-1.5-pro`.
+
+#### 📐 Heuristik-Parser (immer verfügbar)
+Regelbasierter Parser ohne KI — analysiert den OCR-Text strukturiert: erkennt Zutaten-Blöcke, Zubereitungsschritte, Zeitangaben, Portionen, mehrspaltige Layouts und filtert Zeitschriften-Rauschen (Preise, Werbung, Seitenzahlen). Dient als Fallback, wenn keine KI konfiguriert oder verfügbar ist.
+
+---
+
+### Smart Routing — welche KI für welches Rezept?
+
+Die Import-Pipeline bewertet jedes Dokument automatisch und wählt die schnellste und präziseste Strategie:
+
+```
+Eingabe (PDF / Bild / Kamerafoto)
+        │
+        ▼
+ ┌──────────────────────────────────────────────────┐
+ │ Ist es ein PDF mit extrahierbarem Text?          │
+ └──────────────────────────────────────────────────┘
+        │ Ja                          │ Nein
+        ▼                             ▼
+  Text-LLM                     Tesseract OCR
+  (schnell)                    (Texterkennung)
+        │                             │
+        ▼                             ▼
+  ┌─────────────────────────────────────────────────┐
+  │ OCR-Qualitäts­bewertung (Score 0.0 – 1.0)      │
+  │  ≥ 0.60 → gute Qualität (z. B. Chefkoch-PDF)  │
+  │  < 0.60 → schlechte Qualität (Zeitschrift,     │
+  │            Handschrift, mehrere Spalten)        │
+  └─────────────────────────────────────────────────┘
+        │ ≥ 0.60                      │ < 0.60
+        ▼                             ▼
+  Text-LLM                     Vision-LLM (Bild direkt)
+  (ressourcen­schonend)         (höchste Qualität)
+        │                             │
+        └──────────────┬──────────────┘
+                       ▼
+              Heuristik-Parser
+              (Fallback, immer aktiv)
+```
+
+**Beispiele:**
+| Dokument | OCR-Score | Strategie |
+|----------|-----------|-----------|
+| Strukturiertes PDF (z. B. Chefkoch-Export) | ≥ 0.77 | Text-LLM direkt |
+| Chefkoch-Website-Screenshot | ≥ 0.60 | Text-LLM |
+| Zeitschriften-Scan (mehrspaltig, Anzeigen) | ≈ 0.54 | Vision-LLM |
+| Handgeschriebenes Rezept | < 0.60 | Vision-LLM |
+| Kamerafoto (Kochbuch) | < 0.60 | Vision-LLM |
+
+Wenn ein KI-Schritt fehlschlägt (z. B. kein Ollama verfügbar, API-Fehler), wechselt die Pipeline automatisch zum nächsten verfügbaren Schritt und gibt ggf. eine Warnung im Importergebnis zurück.
+
+---
+
+### KI konfigurieren
+
+#### Option A: Ollama (lokal, vollautomatisch — empfohlen)
+
+```bash
+# Stack inklusive Ollama starten
+docker compose --profile ollama up -d
+```
+
+In `.env`:
+```env
+LLM_BASE_URL=http://ollama:11434/v1
+# LLM_MODEL leer lassen → automatische Modellauswahl
+# Modelle werden beim ersten Import automatisch heruntergeladen (OLLAMA_AUTO_PULL=true)
+```
+
+#### Option B: Ollama mit festem Modell
+
+```env
+LLM_BASE_URL=http://ollama:11434/v1
+LLM_MODEL=llama3.2:1b        # kleines Textmodell für schwache Hardware
+# LLM_VISION=false           # Vision komplett deaktivieren (spart Ressourcen)
+```
+
+#### Option C: LM Studio (lokal, Desktop-App)
+
+1. [LM Studio](https://lmstudio.ai) herunterladen und ein Modell laden
+2. Lokalen Server in LM Studio starten
+3. In `.env`:
+
+```env
+LLM_BASE_URL=http://host.docker.internal:1234/v1
+LLM_MODEL=dein-geladenes-modell   # muss immer gesetzt werden (nur ein Modell gleichzeitig)
+```
+
+#### Option D: OpenAI (extern, kostenpflichtig)
+
+Im Admin-Bereich (`/admin`) unter **Externe KI**:
+- **Anbieter**: `openai`
+- **API-Schlüssel**: OpenAI API Key
+- **Modell**: z. B. `gpt-4o-mini` (günstig) oder `gpt-4o` / `gpt-4.1` (höchste Qualität)
+
+OpenAI wird automatisch für alle Datei- und Kamera-Imports verwendet, sobald ein API-Schlüssel konfiguriert ist. Der Schlüssel wird verschlüsselt in der Datenbank gespeichert und nie im Frontend angezeigt.
+
+#### Option E: Google Gemini (extern, kostenpflichtig)
+
+Im Admin-Bereich (`/admin`) unter **Externe KI**:
+- **Anbieter**: `gemini`
+- **API-Schlüssel**: Google AI Studio API Key
+- **Modell**: z. B. `gemini-2.0-flash` (schnell & günstig) oder `gemini-1.5-pro` (höchste Qualität)
+
+#### Konfigurations­übersicht
+
+| Einstellung | Beschreibung | Standard |
+|-------------|--------------|---------|
+| `LLM_BASE_URL` | URL des lokalen LLM-Servers (Ollama / LM Studio) | leer (deaktiviert) |
+| `LLM_MODEL` | Modellname — leer = automatische Auswahl aus Ollama | leer (auto) |
+| `LLM_VISION` | `true` = Vision immer, `false` = nie, leer = auto | leer (auto) |
+| `LLM_API_KEY` | API-Schlüssel für lokalen LLM-Server (meist leer) | leer |
+| `AI_TIMEOUT` | Timeout pro KI-Anfrage in Sekunden | `300` |
+| `OLLAMA_AUTO_PULL` | Modelle automatisch herunterladen | `true` |
+| Admin → Externe KI | OpenAI / Gemini Anbieter, Schlüssel, Modell | — |
 
 ---
 
@@ -91,19 +271,31 @@ cp .env.example .env
 
 # Alle Dienste starten
 docker compose up -d
+
+# Optional: mit lokalem Ollama-LLM starten
+docker compose --profile ollama up -d
 ```
 
 - **Frontend**: http://localhost:3000
 - **API-Dokumentation**: http://localhost:8000/api/docs
 
+> **SECRET_KEY** ist Pflicht. Einen sicheren Schlüssel erzeugen:
+> ```bash
+> openssl rand -hex 32
+> ```
+
 ---
 
-## Architektur
+## Architektur & Technologie-Stack
 
 ```
 kochschmiede/
 ├── frontend/          # Next.js 15 App Router, TailwindCSS, PWA
 ├── backend/           # FastAPI + SQLAlchemy + PostgreSQL
+│   └── app/
+│       ├── api/       # REST-Endpunkte (auth, recipes, import, settings)
+│       ├── services/  # OCR, AI-Parser, Scraper, externe KI
+│       └── models/    # SQLAlchemy-Datenbankmodelle
 ├── public/assets/     # Logo-Assets (Dark/Light-Varianten)
 ├── docker-compose.yml
 └── .env.example
@@ -116,8 +308,12 @@ kochschmiede/
 | Frontend | Next.js 15, TypeScript, TailwindCSS, next-themes |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2, Pydantic v2 |
 | Datenbank | PostgreSQL 16 |
-| OCR | pytesseract + Pillow |
+| OCR | Tesseract (pytesseract) + Pillow + PyMuPDF |
+| Bildformate | JPEG, PNG, WebP, TIFF, HEIC/HEIF (pillow-heif) |
+| Lokale KI | Ollama (llama3.2 + llava:7b), LM Studio, OpenAI-Protokoll |
+| Externe KI | OpenAI Responses API (`openai>=1.58.0`), Google Gemini (`google-genai>=1.10.0`) |
 | Authentifizierung | JWT (python-jose + passlib/bcrypt) |
+| Web-Scraping | BeautifulSoup4 + lxml + requests |
 | Deployment | Docker Compose |
 
 ---
@@ -155,7 +351,7 @@ uvicorn app.main:app --reload   # http://localhost:8000
 | `/recipes/new` | Neues Rezept erstellen (mit Kamera / Upload) |
 | `/import` | Import Center (URL / PDF+OCR / Kamera) |
 | `/settings` | Theme, Sprache, Konto, Export |
-| `/admin` | Admin-Bereich (Benutzer, Registrierung) |
+| `/admin` | Admin-Bereich (Benutzer, Registrierung, externe KI) |
 | `/offline` | Offline-Fallback-Seite |
 
 ---
@@ -175,6 +371,8 @@ uvicorn app.main:app --reload   # http://localhost:8000
 | GET | `/api/import/url?url=…` | Von Website importieren |
 | POST | `/api/import/file` | Von PDF/Bild importieren |
 | POST | `/api/import/camera` | Von Kamerafoto importieren |
+| GET | `/api/settings` | Site-Einstellungen lesen |
+| PUT | `/api/settings` | Site-Einstellungen aktualisieren (Admin) |
 | GET | `/api/health` | Health-Check |
 
 ---
