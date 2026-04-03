@@ -206,6 +206,9 @@ class ImageSearchItem(BaseModel):
     url: str
     photographer: str = ""
     source_url: str = ""
+    source: str = ""       # provider identifier, e.g. "pixabay"
+    source_name: str = ""  # human-readable name, e.g. "Pixabay"
+    source_home: str = ""  # provider home URL for attribution link
 
 
 # ─── Site Settings ────────────────────────────────────────────────────────────

@@ -47,6 +47,9 @@ type ImageSearchItem = {
   url: string;
   photographer: string;
   source_url: string;
+  source?: string;
+  source_name?: string;
+  source_home?: string;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -731,7 +734,9 @@ export default function ImportPage() {
                 <div className="mt-3">
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-1">
                     <ImageIcon size={12} />
-                    Bild auswählen (Quelle: Pixabay)
+                    {imageSearchResults[0]?.source_name
+                      ? `Bild auswählen (Quelle: ${imageSearchResults[0].source_name})`
+                      : "Bild auswählen"}
                   </p>
                   <div className="grid grid-cols-3 gap-1.5">
                     {imageSearchResults.map((item, i) => (
@@ -759,17 +764,23 @@ export default function ImportPage() {
                       </button>
                     ))}
                   </div>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Bilder von{" "}
-                    <a
-                      href="https://pixabay.com"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                    >
-                      Pixabay
-                    </a>
-                  </p>
+                  {imageSearchResults[0]?.source_name && (
+                    <p className="mt-1 text-xs text-zinc-400">
+                      Bilder von{" "}
+                      {imageSearchResults[0].source_home ? (
+                        <a
+                          href={imageSearchResults[0].source_home}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline"
+                        >
+                          {imageSearchResults[0].source_name}
+                        </a>
+                      ) : (
+                        imageSearchResults[0].source_name
+                      )}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
