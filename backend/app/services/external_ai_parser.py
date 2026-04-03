@@ -6,7 +6,8 @@ key and make network requests to external services.
 
 Supported providers
 -------------------
-* ``openai``  – OpenAI Chat Completions (gpt-4o, gpt-4o-mini, …)
+* ``openai``  – OpenAI Responses API (gpt-4.1, gpt-4o, gpt-4o-mini, …)
+               Uses ``json_schema`` structured output for reliable extraction.
 * ``gemini``  – Google Gemini via the official ``google-genai`` SDK
                 (gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, …)
 """
@@ -18,22 +19,65 @@ import json
 import logging
 from typing import Optional
 
-import httpx
-
 from app.schemas import ImportResult
 from app.services.ai_parser import _AI_TEXT_LIMIT, _SYSTEM_PROMPT, _build_import_result
 
 logger = logging.getLogger(__name__)
 
-_OPENAI_BASE_URL = "https://api.openai.com/v1"
 _EXTERNAL_AI_TIMEOUT = 120  # seconds
+
+# ── OpenAI structured-output schema ───────────────────────────────────────────
+# Used with response_format={"type": "json_schema", ...} to enforce the exact
+# fields expected by _build_import_result.  Matches the schema described in
+# _SYSTEM_PROMPT (English field names).
+
+_OPENAI_RECIPE_SCHEMA: dict = {
+    "name": "recipe",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "description": {"type": ["string", "null"]},
+            "ingredients": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "ingredient_groups": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "ingredients": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["name", "ingredients"],
+                },
+            },
+            "steps": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "prep_time": {"type": ["integer", "null"]},
+            "cook_time": {"type": ["integer", "null"]},
+            "servings": {"type": ["integer", "null"]},
+        },
+        "required": ["title", "ingredients", "ingredient_groups", "steps"],
+    },
+}
 
 
 def _safe_json_loads(text: str) -> dict:
     """Parse *text* as JSON, tolerating markdown code-fence wrappers.
 
     Some models (especially newer Gemini previews) may wrap their JSON output
-    in a ``\`\`\`json … \`\`\`` block even when the JSON response MIME type is
+    in a triple-backtick code fence even when the JSON response MIME type is
     requested.  This helper strips those fences before handing the string to
     :func:`json.loads`.
     """
@@ -52,41 +96,87 @@ def _safe_json_loads(text: str) -> dict:
 # ── OpenAI ────────────────────────────────────────────────────────────────────
 
 
-def _call_openai(
-    messages: list[dict],
+def _call_openai_text(
+    text: str,
     api_key: str,
     model: str,
 ) -> Optional[ImportResult]:
-    """POST to the OpenAI Chat Completions endpoint."""
+    """Call the OpenAI Responses API for text-based recipe extraction.
+
+    Uses ``json_schema`` structured output to enforce the exact recipe fields
+    and ``instructions`` to supply the system prompt.
+    """
     try:
-        resp = httpx.post(
-            f"{_OPENAI_BASE_URL}/chat/completions",
-            json={
-                "model": model,
-                "messages": messages,
-                "response_format": {"type": "json_object"},
-                "temperature": 0.1,
-                "max_tokens": 2048,
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, timeout=_EXTERNAL_AI_TIMEOUT)
+        response = client.responses.create(
+            model=model,
+            instructions=_SYSTEM_PROMPT,
+            input=f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
+            response_format={
+                "type": "json_schema",
+                "json_schema": _OPENAI_RECIPE_SCHEMA,
             },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-            timeout=_EXTERNAL_AI_TIMEOUT,
+            temperature=0.1,
+            max_output_tokens=2048,
         )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        parsed: dict = _safe_json_loads(content)
+        parsed: dict = _safe_json_loads(response.output_text)
         return _build_import_result(parsed)
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            "OpenAI API call failed: HTTP %s – %s",
-            exc.response.status_code,
-            exc.response.text[:500],
-        )
-        return None
     except Exception as exc:
-        logger.warning("OpenAI API call failed: %s", exc)
+        logger.warning("OpenAI API call (text) failed: %s", exc)
+        return None
+
+
+def _call_openai_image(
+    image_bytes: bytes,
+    mime_type: str,
+    api_key: str,
+    model: str,
+) -> Optional[ImportResult]:
+    """Call the OpenAI Responses API for vision-based recipe extraction.
+
+    Sends the image as a base64-encoded ``input_image`` block alongside the
+    extraction prompt.  Uses ``json_schema`` structured output to guarantee a
+    well-formed recipe JSON response.
+    """
+    try:
+        from openai import OpenAI
+
+        b64 = base64.b64encode(image_bytes).decode()
+        client = OpenAI(api_key=api_key, timeout=_EXTERNAL_AI_TIMEOUT)
+        response = client.responses.create(
+            model=model,
+            instructions=_SYSTEM_PROMPT,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "Analysiere dieses Rezeptbild und extrahiere "
+                                "alle Rezeptdaten als JSON."
+                            ),
+                        },
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{mime_type};base64,{b64}",
+                        },
+                    ],
+                }
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": _OPENAI_RECIPE_SCHEMA,
+            },
+            temperature=0.1,
+            max_output_tokens=2048,
+        )
+        parsed: dict = _safe_json_loads(response.output_text)
+        return _build_import_result(parsed)
+    except Exception as exc:
+        logger.warning("OpenAI API call (vision) failed: %s", exc)
         return None
 
 
@@ -155,14 +245,7 @@ def parse_with_external_ai(
         return None
 
     if provider == "openai":
-        messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
-            },
-        ]
-        return _call_openai(messages, api_key, model)
+        return _call_openai_text(text, api_key, model)
 
     if provider == "gemini":
         return _call_gemini(
@@ -191,27 +274,7 @@ def parse_image_with_external_ai(
         return None
 
     if provider == "openai":
-        b64 = base64.b64encode(image_bytes).decode()
-        messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "Analysiere dieses Rezeptbild und extrahiere alle "
-                            "Rezeptdaten als JSON."
-                        ),
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime_type};base64,{b64}"},
-                    },
-                ],
-            },
-        ]
-        return _call_openai(messages, api_key, model)
+        return _call_openai_image(image_bytes, mime_type, api_key, model)
 
     if provider == "gemini":
         return _call_gemini(
