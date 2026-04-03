@@ -63,16 +63,16 @@
     <td align="center"><b>All Recipes</b></td>
   </tr>
   <tr>
-    <td><img src="https://github.com/user-attachments/assets/a258f626-64e8-400a-90db-55160a440a37" width="300" alt="Dashboard" /></td>
-    <td><img src="https://github.com/user-attachments/assets/ff66be36-cb8d-4acf-812d-de600aeecfbe" width="300" alt="All Recipes" /></td>
+    <td><img src="https://github.com/user-attachments/assets/fdbb21ff-f67f-4ba0-b5fa-755b0580b190" width="300" alt="Dashboard" /></td>
+    <td><img src="https://github.com/user-attachments/assets/bfb89549-18aa-4550-87e8-57a4035c81cf" width="300" alt="All Recipes" /></td>
   </tr>
   <tr>
     <td align="center"><b>Recipe Detail</b></td>
     <td align="center"><b>Import Center</b></td>
   </tr>
   <tr>
-    <td><img src="https://github.com/user-attachments/assets/8e920f30-4903-499e-91f3-c4d8d36c6221" width="300" alt="Recipe Detail" /></td>
-    <td><img src="https://github.com/user-attachments/assets/ddafbb46-abc0-4fe4-bb81-b3338c0dc6bc" width="300" alt="Import Center" /></td>
+    <td><img src="https://github.com/user-attachments/assets/d152c1cb-e825-4d06-ab67-9a959c090b40" width="300" alt="Recipe Detail" /></td>
+    <td><img src="https://github.com/user-attachments/assets/1159594c-9468-4cfc-8f84-7e9356a012a4" width="300" alt="Import Center" /></td>
   </tr>
 </table>
 
