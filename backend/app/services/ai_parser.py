@@ -313,6 +313,11 @@ def _build_import_result(parsed: dict) -> Optional[ImportResult]:
     ]
     allowed = set(ImportResult.model_fields)
     safe = {k: v for k, v in parsed.items() if k in allowed}
+    # Gemini (and some other models) may return null for list fields instead of
+    # an empty array.  Normalise them so Pydantic validation does not fail.
+    for _list_field in ("tags", "ingredients", "steps"):
+        if safe.get(_list_field) is None:
+            safe[_list_field] = []
     # Fix fragmented flat ingredient list as well.
     if "ingredients" in safe and isinstance(safe["ingredients"], list):
         safe["ingredients"] = _combine_ingredient_fragments(
