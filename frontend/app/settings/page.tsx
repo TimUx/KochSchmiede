@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import ThemeToggle from "@/components/ThemeToggle";
 import WakeLockToggle from "@/components/WakeLockToggle";
+import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import {
   User,
@@ -53,6 +54,28 @@ function apiFetch(path: string, options: RequestInit = {}) {
     return res.status === 204 ? null : res.json();
   });
 }
+
+const SETTINGS_HELP = {
+  title: "Einstellungen",
+  sections: [
+    {
+      items: [
+        "Darstellung: Wechsle zwischen hellem und dunklem Design.",
+        "Sprache: Stelle die Anzeigesprache der App ein (Deutsch / Englisch).",
+        "Display-Wachhalten: Verhindert, dass der Bildschirm beim Kochen ausgeht.",
+        "Passwort ändern: Lege ein neues Passwort für deinen Account fest.",
+        "Daten exportieren: Lade alle deine Rezepte als JSON-Datei herunter.",
+        "Administratoren finden zusätzlich einen Link zum Admin-Bereich.",
+      ],
+    },
+  ],
+  docsLinks: [
+    {
+      label: "Benutzerhandbuch öffnen",
+      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
+    },
+  ],
+};
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -154,7 +177,10 @@ export default function SettingsPage() {
   return (
     <AppShell>
       <main className="w-full px-4 py-6 pb-24 lg:pb-8">
-        <h1 className="text-2xl font-bold mb-6">Einstellungen</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Einstellungen</h1>
+          <HelpButton content={SETTINGS_HELP} />
+        </div>
 
         {/* Admin panel link – only shown for admins */}
         {profile?.is_admin && (
