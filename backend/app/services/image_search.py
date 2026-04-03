@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _PIXABAY_API_URL = "https://pixabay.com/api/"
 _DEFAULT_COUNT = 6
+_PIXABAY_MAX_PER_PAGE = 20  # Pixabay API upper limit for per_page
 
 
 class ImageSearchItem(TypedDict):
@@ -57,7 +58,7 @@ def _search_pixabay(query: str, api_key: str, count: int) -> list[ImageSearchIte
                 "q": query,
                 "image_type": "photo",
                 "category": "food",
-                "per_page": min(count, 20),
+                "per_page": min(count, _PIXABAY_MAX_PER_PAGE),
                 "safesearch": "true",
                 "lang": "de",
             },

@@ -648,7 +648,7 @@ async def import_from_camera(
 
 @router.get("/search-images", response_model=list[ImageSearchItem])
 def search_recipe_images(
-    query: str = Query(..., description="Search query, e.g. recipe title"),
+    query: str = Query(..., max_length=200, description="Search query, e.g. recipe title"),
 ):
     """Return up to 6 food images from the configured image search provider.
 
