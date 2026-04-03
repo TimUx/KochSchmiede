@@ -13,11 +13,11 @@ import {
   Loader2,
   Check,
   ArrowRight,
-  Pencil,
   Save,
   AlertCircle,
-  Plus,
   X,
+  Search,
+  Image as ImageIcon,
 } from "lucide-react";
 
 type ImportTab = "url" | "file" | "camera";
@@ -40,6 +40,13 @@ type ImportResult = {
   cook_time?: number;
   servings?: number;
   import_warning?: string;
+};
+
+type ImageSearchItem = {
+  thumb_url: string;
+  url: string;
+  photographer: string;
+  source_url: string;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -183,15 +190,54 @@ export default function ImportPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ── Image search state ────────────────────────────────────────────────────
+  const [imageSearchResults, setImageSearchResults] = useState<ImageSearchItem[]>([]);
+  const [imageSearchLoading, setImageSearchLoading] = useState(false);
+  const [imageSearchError, setImageSearchError] = useState<string | null>(null);
+  const [imageSearchDone, setImageSearchDone] = useState(false);
+
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   const handleApiResult = (data: ImportResult) => {
     setResult(data);
     setError(null);
+    // Reset image search state for each new import
+    setImageSearchResults([]);
+    setImageSearchError(null);
+    setImageSearchDone(false);
   };
 
   const handleApiError = (e: unknown) => {
     setError(e instanceof Error ? e.message : "Import fehlgeschlagen");
+  };
+
+  // ── Image search ─────────────────────────────────────────────────────────
+
+  const searchImages = async () => {
+    if (!result) return;
+    const query = [result.title, ...(result.tags ?? [])].filter(Boolean).join(" ");
+    if (!query) return;
+    setImageSearchLoading(true);
+    setImageSearchError(null);
+    try {
+      const items: ImageSearchItem[] = await apiFetch(
+        `/api/import/search-images?query=${encodeURIComponent(query)}`
+      );
+      setImageSearchResults(items);
+      setImageSearchDone(true);
+      if (items.length === 0) {
+        setImageSearchError("Keine Bilder gefunden.");
+      }
+    } catch (e) {
+      setImageSearchError(e instanceof Error ? e.message : "Bildersuche fehlgeschlagen");
+    } finally {
+      setImageSearchLoading(false);
+    }
+  };
+
+  const selectImage = (item: ImageSearchItem) => {
+    if (!result) return;
+    setResult({ ...result, image_url: item.url });
   };
 
   // ── URL Import ────────────────────────────────────────────────────────────
@@ -599,6 +645,95 @@ export default function ImportPage() {
             {result.description && (
               <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">{result.description}</p>
             )}
+
+            {/* ── Image section ──────────────────────────────────────────── */}
+            <div className="mb-4">
+              {/* Current image preview */}
+              {result.image_url && (
+                <div className="relative mb-2 inline-block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={result.image_url}
+                    alt="Rezeptbild"
+                    className="w-full max-h-48 object-cover rounded-xl"
+                  />
+                  <button
+                    onClick={() => setResult({ ...result, image_url: undefined })}
+                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 hover:bg-black/80 transition"
+                    title="Bild entfernen"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
+
+              {/* Image search button */}
+              <button
+                onClick={searchImages}
+                disabled={imageSearchLoading}
+                className="flex items-center gap-2 text-sm px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:border-amber-400 hover:text-amber-600 transition disabled:opacity-50"
+              >
+                {imageSearchLoading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Search size={14} />
+                )}
+                {result.image_url ? "Anderes Bild suchen" : "Bild im Internet suchen"}
+              </button>
+
+              {/* Image search error */}
+              {imageSearchError && (
+                <p className="mt-2 text-xs text-red-500">{imageSearchError}</p>
+              )}
+
+              {/* Image search results grid */}
+              {imageSearchDone && imageSearchResults.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-1">
+                    <ImageIcon size={12} />
+                    Bild auswählen (Quelle: Pixabay)
+                  </p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {imageSearchResults.map((item, i) => (
+                      <button
+                        key={i}
+                        onClick={() => selectImage(item)}
+                        title={item.photographer ? `Foto: ${item.photographer}` : undefined}
+                        className={`relative rounded-lg overflow-hidden aspect-video border-2 transition ${
+                          result.image_url === item.url
+                            ? "border-amber-500"
+                            : "border-transparent hover:border-amber-300"
+                        }`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={item.thumb_url}
+                          alt={`Bild ${i + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        {result.image_url === item.url && (
+                          <span className="absolute inset-0 bg-amber-500/20 flex items-center justify-center">
+                            <Check size={20} className="text-amber-600 drop-shadow" />
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Bilder von{" "}
+                    <a
+                      href="https://pixabay.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      Pixabay
+                    </a>
+                  </p>
+                </div>
+              )}
+            </div>
+            {/* ── End image section ─────────────────────────────────────── */}
 
             {/* Flat ingredients */}
             {result.ingredients.length > 0 && (

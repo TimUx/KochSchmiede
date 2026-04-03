@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # CPU-only hardware – local models can take several minutes per request.
     AI_TIMEOUT: int = 300
 
+    # ── Image search for recipe import ───────────────────────────────────────
+    # When a recipe is imported without a photo, the import page can search for
+    # a suitable food image online.  Supported providers:
+    #   pixabay  – Free API key: https://pixabay.com/api/docs/
+    #
+    # Leave IMAGE_SEARCH_API_KEY empty to disable the feature.
+    IMAGE_SEARCH_API_KEY: str = ""
+    IMAGE_SEARCH_PROVIDER: str = "pixabay"
+
     # ── Ollama model auto-pull ────────────────────────────────────────────────
     # When True (the default) and Ollama is reachable but has no suitable text
     # or vision model loaded, the backend will automatically pull a recommended
