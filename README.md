@@ -175,6 +175,18 @@ Eingabe (PDF / Bild / Kamerafoto)
               (Fallback, immer aktiv)
 ```
 
+**Welche KI wird für Text-LLM / Vision-LLM verwendet?**
+
+Die Pipeline wählt automatisch die konfigurierte KI in folgender Priorität:
+
+| Priorität | Anbieter | Text-LLM | Vision-LLM |
+|-----------|----------|-----------|------------|
+| 1 | **Externe KI** (OpenAI / Gemini) | ✅ | ✅ |
+| 2 | **Lokal** (Ollama / LM Studio) | ✅ | ✅ (llava:7b) |
+| 3 | **Heuristik-Parser** (Fallback, kein LLM) | ✅ | — |
+
+Ist eine externe KI konfiguriert, wird diese bevorzugt verwendet. Ist kein lokales Modell vorhanden und keine externe KI eingerichtet, greift automatisch der Heuristik-Parser als Fallback.
+
 **Beispiele:**
 | Dokument | OCR-Score | Strategie |
 |----------|-----------|-----------|
@@ -225,6 +237,8 @@ LLM_MODEL=dein-geladenes-modell   # muss immer gesetzt werden (nur ein Modell gl
 
 #### Option D: OpenAI (extern, kostenpflichtig)
 
+> **Voraussetzung:** Ein kostenpflichtiger [OpenAI-Account](https://platform.openai.com/) ist erforderlich. Die Nutzung wird nach Tokenverbrauch abgerechnet — OpenAI bietet verschiedene Preismodelle je nach Modell an (z. B. `gpt-4o-mini` für günstige Nutzung, `gpt-4o` / `gpt-4.1` für höchste Qualität). Aktuelle Preise: [openai.com/pricing](https://openai.com/pricing).
+
 Im Admin-Bereich (`/admin`) unter **Externe KI**:
 - **Anbieter**: `openai`
 - **API-Schlüssel**: OpenAI API Key
@@ -233,6 +247,8 @@ Im Admin-Bereich (`/admin`) unter **Externe KI**:
 OpenAI wird automatisch für alle Datei- und Kamera-Imports verwendet, sobald ein API-Schlüssel konfiguriert ist. Der Schlüssel wird verschlüsselt in der Datenbank gespeichert und nie im Frontend angezeigt.
 
 #### Option E: Google Gemini (extern, kostenpflichtig)
+
+> **Voraussetzung:** Ein [Google-Account](https://accounts.google.com/) sowie ein aktiver Zugang zu [Google AI Studio](https://aistudio.google.com/) sind erforderlich. Die Nutzung über die API wird nutzungsbasiert abgerechnet — Google bietet verschiedene Preismodelle je nach Modell und Anfragelast an (z. B. `gemini-2.0-flash` für schnelle und günstige Nutzung, `gemini-1.5-pro` für höchste Qualität). Aktuelle Preise: [ai.google.dev/pricing](https://ai.google.dev/pricing).
 
 Im Admin-Bereich (`/admin`) unter **Externe KI**:
 - **Anbieter**: `gemini`
