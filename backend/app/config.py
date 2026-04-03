@@ -45,12 +45,24 @@ class Settings(BaseSettings):
 
     # ── Image search for recipe import ───────────────────────────────────────
     # When a recipe is imported without a photo, the import page can search for
-    # a suitable food image online.  Supported providers:
-    #   pixabay  – Free API key: https://pixabay.com/api/docs/
+    # a suitable food image online.
     #
-    # Leave IMAGE_SEARCH_API_KEY empty to disable the feature.
-    IMAGE_SEARCH_API_KEY: str = ""
-    IMAGE_SEARCH_PROVIDER: str = "pixabay"
+    # IMAGE_SEARCH_PROVIDER – comma-separated list of providers to try in order.
+    #   Providers without a configured API key are silently skipped; the feature
+    #   is disabled when no key is set at all.
+    #
+    # Per-provider API keys:
+    #   PIXABAY_API_KEY   – https://pixabay.com/api/docs/       (free, 500 req/h)
+    #   UNSPLASH_API_KEY  – https://unsplash.com/developers     (free, 50 req/h)
+    #   PEXELS_API_KEY    – https://www.pexels.com/api/         (free, 200 req/h)
+    #
+    # Legacy: IMAGE_SEARCH_API_KEY is used as the Pixabay key when PIXABAY_API_KEY
+    # is not set (backwards compatibility).
+    IMAGE_SEARCH_API_KEY: str = ""   # legacy Pixabay key – prefer PIXABAY_API_KEY
+    IMAGE_SEARCH_PROVIDER: str = "pixabay,unsplash,pexels"
+    PIXABAY_API_KEY: str = ""
+    UNSPLASH_API_KEY: str = ""
+    PEXELS_API_KEY: str = ""
 
     # ── Ollama model auto-pull ────────────────────────────────────────────────
     # When True (the default) and Ollama is reachable but has no suitable text
