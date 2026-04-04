@@ -56,6 +56,12 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   useEffect(() => {
+    return () => {
+      if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
+  useEffect(() => {
     apiFetch(`/api/recipes/${id}`)
       .then((data) => {
         setTitle(data.title ?? "");

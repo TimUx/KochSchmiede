@@ -73,6 +73,12 @@ export default function NewRecipePage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   useEffect(() => {
+    return () => {
+      if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
+  useEffect(() => {
     apiFetch("/api/recipes/tags")
       .then((data: string[]) => setAllTags(data))
       .catch(() => {/* ignore – suggestions are optional */});
