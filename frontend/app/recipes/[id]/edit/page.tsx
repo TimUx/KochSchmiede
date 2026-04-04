@@ -49,6 +49,7 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
   const [steps, setSteps] = useState<string[]>([""]);
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [tagInputFocused, setTagInputFocused] = useState(false);
   const [allTags, setAllTags] = useState<string[]>([]);
 
   useEffect(() => {
@@ -302,6 +303,8 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
                   value={tagInput}
                   onChange={(e) => setTagInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                  onFocus={() => setTagInputFocused(true)}
+                  onBlur={() => setTagInputFocused(false)}
                   placeholder="Neue Kategorie eingeben…"
                   className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 dark:text-white"
                 />
@@ -313,7 +316,7 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
                   <Plus size={16} />
                 </button>
               </div>
-              {tagInput && tagSuggestions.length > 0 && (
+              {tagInputFocused && tagSuggestions.length > 0 && (
                 <div className="absolute z-10 mt-1 w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
                   {tagSuggestions.map((s) => (
                     <button
