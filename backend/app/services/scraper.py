@@ -6,6 +6,13 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
+try:
+    from curl_cffi import requests as cffi_requests
+
+    _HAS_CURL_CFFI = True
+except ImportError:
+    _HAS_CURL_CFFI = False
+
 from app.schemas import ImportIngredientGroup, ImportResult
 
 # Private/loopback networks to block (SSRF protection)
@@ -133,21 +140,42 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             raise ValueError("Only http/https URLs are allowed")
-    with requests.Session() as session:
-        session.headers.update(
-            {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept-Encoding": "gzip, deflate, br",
-                "DNT": "1",
-            }
-        )
-        resp = session.get(url, timeout=15)
+    if _HAS_CURL_CFFI:
+        # curl_cffi 0.15.0+ has built-in redirect-SSRF protection and impersonates
+        # Chrome's TLS stack (JA3/ALPN/HTTP2 settings) to bypass bot-detection.
+        with cffi_requests.Session() as session:
+            resp = session.get(
+                url,
+                impersonate="chrome124",
+                headers={"Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"},
+                timeout=15,
+            )
+    else:
+        with requests.Session() as session:
+            if check_ssrf:
+
+                def _validate_redirect_target(resp, *args, **kwargs):  # noqa: ANN001
+                    if resp.is_redirect:
+                        location = resp.headers.get("Location", "")
+                        if location:
+                            _validate_url(location)
+
+                session.hooks["response"].append(_validate_redirect_target)
+
+            session.headers.update(
+                {
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "DNT": "1",
+                }
+            )
+            resp = session.get(url, timeout=15)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
 
