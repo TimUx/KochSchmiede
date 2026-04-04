@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import RecipeCard from "@/components/RecipeCard";
 import HelpButton from "@/components/HelpButton";
-import { Search, SlidersHorizontal, Loader2, ChefHat } from "lucide-react";
+import { Search, SlidersHorizontal, Loader2, ChefHat, LayoutGrid, List } from "lucide-react";
 import Link from "next/link";
 
 const RECIPES_HELP = {
@@ -51,6 +51,21 @@ function RecipesContent() {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showFilter, setShowFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") ?? "");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("ks_view_mode");
+    if (saved === "list" || saved === "grid") setViewMode(saved);
+  }, []);
+
+  function handleViewModeChange(mode: "grid" | "list") {
+    setViewMode(mode);
+    localStorage.setItem("ks_view_mode", mode);
+  }
+
+  function viewToggleClass(mode: "grid" | "list") {
+    return `p-1.5 transition ${viewMode === mode ? "bg-amber-500 text-white" : "bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"}`;
+  }
 
   useEffect(() => {
     setSearchQuery(searchParams.get("q") ?? "");
@@ -114,6 +129,22 @@ function RecipesContent() {
           <h1 className="text-2xl font-bold">Alle Rezepte</h1>
           <div className="flex items-center gap-1">
             <HelpButton content={RECIPES_HELP} />
+            <div className="flex rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+              <button
+                onClick={() => handleViewModeChange("grid")}
+                className={viewToggleClass("grid")}
+                aria-label="Gitteransicht"
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button
+                onClick={() => handleViewModeChange("list")}
+                className={viewToggleClass("list")}
+                aria-label="Listenansicht"
+              >
+                <List size={16} />
+              </button>
+            </div>
             <button
               onClick={() => setShowFilter((v) => !v)}
               className={`p-2 rounded-xl border transition ${
@@ -205,10 +236,11 @@ function RecipesContent() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={viewMode === "list" ? "flex flex-col gap-2" : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"}>
             {filteredRecipes.map((recipe) => (
               <RecipeCard
                 key={recipe.id}
+                variant={viewMode}
                 recipe={{
                   id: recipe.id,
                   title: recipe.title,

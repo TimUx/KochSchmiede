@@ -7,7 +7,7 @@ import InstallPrompt from "@/components/InstallPrompt";
 import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { PlusCircle, TrendingUp, Search, Loader2 } from "lucide-react";
+import { PlusCircle, TrendingUp, Search, Loader2, LayoutGrid, List } from "lucide-react";
 
 const DASHBOARD_HELP = {
   title: "Dashboard – Übersicht",
@@ -47,6 +47,21 @@ export default function Dashboard() {
   const [recipes, setRecipes] = useState<ApiRecipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("ks_view_mode");
+    if (saved === "list" || saved === "grid") setViewMode(saved);
+  }, []);
+
+  function handleViewModeChange(mode: "grid" | "list") {
+    setViewMode(mode);
+    localStorage.setItem("ks_view_mode", mode);
+  }
+
+  function viewToggleClass(mode: "grid" | "list") {
+    return `p-1.5 transition ${viewMode === mode ? "bg-amber-500 text-white" : "bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"}`;
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -167,9 +182,27 @@ export default function Dashboard() {
         {/* Recent Recipes */}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-semibold text-lg">Zuletzt hinzugefügt</h2>
-          <Link href="/recipes" className="text-amber-500 text-sm font-medium">
-            Alle anzeigen
-          </Link>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+              <button
+                onClick={() => handleViewModeChange("grid")}
+                className={viewToggleClass("grid")}
+                aria-label="Gitteransicht"
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button
+                onClick={() => handleViewModeChange("list")}
+                className={viewToggleClass("list")}
+                aria-label="Listenansicht"
+              >
+                <List size={16} />
+              </button>
+            </div>
+            <Link href="/recipes" className="text-amber-500 text-sm font-medium">
+              Alle anzeigen
+            </Link>
+          </div>
         </div>
 
         {loading ? (
@@ -184,10 +217,11 @@ export default function Dashboard() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={viewMode === "list" ? "flex flex-col gap-2" : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"}>
             {recentRecipes.map((recipe) => (
               <RecipeCard
                 key={recipe.id}
+                variant={viewMode}
                 recipe={{
                   id: recipe.id,
                   title: recipe.title,

@@ -294,6 +294,9 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
             </a>
           )}
 
+          <div className="lg:grid lg:grid-cols-2 lg:gap-8">
+            {/* Ingredients column */}
+            <div>
           {(recipe.ingredients.length > 0 || recipe.ingredient_groups.length > 0) && (
             <div className="mb-6">
               <h2 className="font-bold text-lg mb-3">Zutaten</h2>
@@ -342,7 +345,10 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
               ))}
             </div>
           )}
+            </div>
 
+            {/* Steps column */}
+            <div>
           {recipe.steps.length > 0 && (
             <div className="mb-6">
               <h2 className="font-bold text-lg mb-3">Zubereitung</h2>
@@ -363,6 +369,8 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
               </div>
             </div>
           )}
+            </div>
+          </div>
         </div>
       </main>
       <ShareDialog
