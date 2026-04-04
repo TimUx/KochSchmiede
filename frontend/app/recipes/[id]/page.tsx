@@ -109,7 +109,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
     fetch(`${API}/api/settings/public`)
       .then((res) => res.json())
       .then((s) => setSiteMode(s.site_mode ?? "public"))
-      .catch(() => {/* keep default */});
+      .catch(() => {/* default to "public" so the UI conservatively hides edit buttons on failure */});
   }, []);
 
   useEffect(() => {
