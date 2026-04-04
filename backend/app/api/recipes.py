@@ -1,6 +1,8 @@
+import uuid
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -20,6 +22,11 @@ from app.services.auth import hash_password, verify_password
 from app.services.settings import get_settings
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
+
+_RECIPE_IMAGE_UPLOAD_DIR = Path("/app/uploads/recipes")
+_RECIPE_IMAGE_ALLOWED_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+_RECIPE_IMAGE_MAX_SIZE = 10 * 1024 * 1024  # 10 MB
+_RECIPE_IMAGE_EXT_MAP = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
 
 # Optional auth: returns user or None (no 401 when token is absent)
 _oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -162,6 +169,24 @@ def create_recipe(
     return _recipe_to_out(recipe)
 
 
+@router.post("/upload-image")
+async def upload_recipe_image(
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+):
+    """Upload an image for a recipe and return its URL."""
+    if file.content_type not in _RECIPE_IMAGE_ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Ungültiges Dateiformat. Erlaubt: PNG, JPEG, WEBP, GIF")
+    data = await file.read()
+    if len(data) > _RECIPE_IMAGE_MAX_SIZE:
+        raise HTTPException(status_code=413, detail="Datei zu groß (max. 10 MB)")
+    _RECIPE_IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    ext = _RECIPE_IMAGE_EXT_MAP[file.content_type]
+    filename = f"recipe_{uuid.uuid4().hex}{ext}"
+    (_RECIPE_IMAGE_UPLOAD_DIR / filename).write_bytes(data)
+    return {"url": f"/api/uploads/recipes/{filename}"}
+
+
 @router.get("/share/{token}", response_model=RecipeOut)
 def get_shared_recipe(
     token: str,
@@ -218,10 +243,14 @@ def update_recipe(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    for field in ("title", "description", "image_url", "prep_time", "cook_time", "servings"):
+    for field in ("title", "description", "prep_time", "cook_time", "servings"):
         val = getattr(recipe_in, field, None)
         if val is not None:
             setattr(recipe, field, val)
+
+    # image_url: always update when explicitly provided (supports clearing to null)
+    if "image_url" in recipe_in.model_fields_set:
+        recipe.image_url = recipe_in.image_url
 
     if recipe_in.ingredients is not None:
         for i in recipe.ingredients:
