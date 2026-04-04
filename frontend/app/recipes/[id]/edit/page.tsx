@@ -9,7 +9,7 @@ import IngredientGroupEditor, {
   type IngredientGroup,
 } from "@/components/IngredientGroupEditor";
 import Link from "next/link";
-import { ArrowLeft, Plus, Trash2, Save, Loader2, AlertCircle, Tag, X } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Loader2, AlertCircle, Tag, X, Upload } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -51,6 +51,9 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
   const [tagInput, setTagInput] = useState("");
   const [tagInputFocused, setTagInputFocused] = useState(false);
   const [allTags, setAllTags] = useState<string[]>([]);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch(`/api/recipes/${id}`)
@@ -91,13 +94,18 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
             .map((s: { instruction: string }) => s.instruction)
         );
         setTags(data.tags ?? []);
+        const url: string | null = data.image_url ?? null;
+        setImageUrl(url);
+        if (url) {
+          setImagePreview(url.startsWith("http") ? url : `${API}${url}`);
+        }
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
 
   useEffect(() => {
-    apiFetch("/api/tags")
+    apiFetch("/api/recipes/tags")
       .then((data: string[]) => setAllTags(data))
       .catch(() => {/* ignore – suggestions are optional */});
   }, []);
@@ -115,15 +123,44 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
   const addStep = () => setSteps([...steps, ""]);
   const removeStep = (i: number) => setSteps(steps.filter((_, idx) => idx !== i));
 
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  async function uploadImage(file: File): Promise<string> {
+    const token = localStorage.getItem("ks_token");
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API}/api/recipes/upload-image`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(e.detail ?? "Bild-Upload fehlgeschlagen");
+    }
+    const data = await res.json();
+    return data.url;
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
     try {
+      let finalImageUrl: string | null = imageUrl;
+      if (imageFile) {
+        finalImageUrl = await uploadImage(imageFile);
+      }
       await apiFetch(`/api/recipes/${id}`, {
         method: "PUT",
         body: JSON.stringify({
           title,
           description: description || null,
+          image_url: finalImageUrl,
           prep_time: prepTime ? parseInt(prepTime) : null,
           cook_time: cookTime ? parseInt(cookTime) : null,
           servings: servings ? parseInt(servings) : null,
@@ -230,6 +267,35 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
               rows={3}
               className={`${inputCls} resize-none`}
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Bild</label>
+            {imagePreview && (
+              <div className="relative w-full h-48 rounded-2xl overflow-hidden mb-2 bg-zinc-100 dark:bg-zinc-800">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imagePreview} alt="Vorschau" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => { setImageUrl(null); setImageFile(null); setImagePreview(null); }}
+                  className="absolute top-2 right-2 bg-black/60 text-white p-1 rounded-full hover:bg-black/80 transition"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            <label className={`${inputCls} flex items-center gap-2 cursor-pointer`}>
+              <Upload size={16} className="text-zinc-400 shrink-0" />
+              <span className="text-zinc-400 text-sm">
+                {imageFile ? imageFile.name : "Bild auswählen…"}
+              </span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={handleImageChange}
+              />
+            </label>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

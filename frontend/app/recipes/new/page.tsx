@@ -9,7 +9,7 @@ import IngredientGroupEditor, {
 } from "@/components/IngredientGroupEditor";
 import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
-import { ArrowLeft, Plus, Trash2, Save, Loader2, AlertCircle, Tag, X } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Loader2, AlertCircle, Tag, X, Upload } from "lucide-react";
 
 const NEW_RECIPE_HELP = {
   title: "Neues Rezept erstellen",
@@ -69,9 +69,11 @@ export default function NewRecipePage() {
   const [tagInput, setTagInput] = useState("");
   const [tagInputFocused, setTagInputFocused] = useState(false);
   const [allTags, setAllTags] = useState<string[]>([]);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch("/api/tags")
+    apiFetch("/api/recipes/tags")
       .then((data: string[]) => setAllTags(data))
       .catch(() => {/* ignore – suggestions are optional */});
   }, []);
@@ -89,16 +91,45 @@ export default function NewRecipePage() {
   const addStep = () => setSteps([...steps, ""]);
   const removeStep = (i: number) => setSteps(steps.filter((_, idx) => idx !== i));
 
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  async function uploadImage(file: File): Promise<string> {
+    const token = localStorage.getItem("ks_token");
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API}/api/recipes/upload-image`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(e.detail ?? "Bild-Upload fehlgeschlagen");
+    }
+    const data = await res.json();
+    return data.url;
+  }
+
   async function handleSave() {
     if (!title.trim()) { setError("Titel ist erforderlich"); return; }
     setSaving(true);
     setError(null);
     try {
+      let imageUrl: string | null = null;
+      if (imageFile) {
+        imageUrl = await uploadImage(imageFile);
+      }
       const data = await apiFetch("/api/recipes/", {
         method: "POST",
         body: JSON.stringify({
           title: title.trim(),
           description: description || null,
+          image_url: imageUrl,
           prep_time: prepTime ? parseInt(prepTime) : null,
           cook_time: cookTime ? parseInt(cookTime) : null,
           servings: servings ? parseInt(servings) : null,
@@ -189,6 +220,35 @@ export default function NewRecipePage() {
               placeholder="Kurze Beschreibung des Rezepts…"
               className={`${inputCls} resize-none`}
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Bild</label>
+            {imagePreview && (
+              <div className="relative w-full h-48 rounded-2xl overflow-hidden mb-2 bg-zinc-100 dark:bg-zinc-800">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imagePreview} alt="Vorschau" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => { setImageFile(null); setImagePreview(null); }}
+                  className="absolute top-2 right-2 bg-black/60 text-white p-1 rounded-full hover:bg-black/80 transition"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            <label className={`${inputCls} flex items-center gap-2 cursor-pointer`}>
+              <Upload size={16} className="text-zinc-400 shrink-0" />
+              <span className="text-zinc-400 text-sm">
+                {imageFile ? imageFile.name : "Bild auswählen…"}
+              </span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={handleImageChange}
+              />
+            </label>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
