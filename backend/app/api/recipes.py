@@ -210,7 +210,11 @@ def update_recipe(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.owner_id == current_user.id).first()
+    site_settings = get_settings(db)
+    query = db.query(Recipe).filter(Recipe.id == recipe_id)
+    if site_settings.site_mode != "private":
+        query = query.filter(Recipe.owner_id == current_user.id)
+    recipe = query.first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
@@ -262,7 +266,11 @@ def delete_recipe(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    recipe = db.query(Recipe).filter(Recipe.id == recipe_id, Recipe.owner_id == current_user.id).first()
+    site_settings = get_settings(db)
+    query = db.query(Recipe).filter(Recipe.id == recipe_id)
+    if site_settings.site_mode != "private":
+        query = query.filter(Recipe.owner_id == current_user.id)
+    recipe = query.first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     db.delete(recipe)

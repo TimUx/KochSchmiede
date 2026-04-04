@@ -102,9 +102,14 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
   const [shareOpen, setShareOpen] = useState(false);
   const [currentServings, setCurrentServings] = useState(4);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+  const [siteMode, setSiteMode] = useState<string>("public");
 
   useEffect(() => {
     setCurrentUsername(localStorage.getItem("ks_username"));
+    fetch(`${API}/api/settings/public`)
+      .then((res) => res.json())
+      .then((s) => setSiteMode(s.site_mode ?? "public"))
+      .catch(() => {/* default to "public" so the UI conservatively hides edit buttons on failure */});
   }, []);
 
   useEffect(() => {
@@ -138,6 +143,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
 
   const ratio = recipe ? currentServings / (recipe.servings ?? 4) : 1;
   const isOwner = !!recipe && !!currentUsername && recipe.owner_username === currentUsername;
+  const canEdit = isOwner || (siteMode === "private" && !!currentUsername);
 
   return (
     <AppShell>
@@ -208,7 +214,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
                   <Share2 size={18} />
                 </button>
               )}
-              {isOwner && (
+              {canEdit && (
                 <Link href={`/recipes/${id}/edit`} className="p-2 rounded-xl bg-amber-500 text-white">
                   <Edit size={18} />
                 </Link>
