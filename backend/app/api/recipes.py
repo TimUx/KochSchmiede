@@ -181,7 +181,7 @@ async def upload_recipe_image(
     if len(data) > _RECIPE_IMAGE_MAX_SIZE:
         raise HTTPException(status_code=413, detail="Datei zu groß (max. 10 MB)")
     _RECIPE_IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    ext = _RECIPE_IMAGE_EXT_MAP.get(file.content_type, ".jpg")
+    ext = _RECIPE_IMAGE_EXT_MAP[file.content_type]
     filename = f"recipe_{uuid.uuid4().hex}{ext}"
     (_RECIPE_IMAGE_UPLOAD_DIR / filename).write_bytes(data)
     return {"url": f"/api/uploads/recipes/{filename}"}
