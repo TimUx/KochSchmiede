@@ -58,6 +58,15 @@ function RecipesContent() {
     if (saved === "list" || saved === "grid") setViewMode(saved);
   }, []);
 
+  function handleViewModeChange(mode: "grid" | "list") {
+    setViewMode(mode);
+    localStorage.setItem("ks_view_mode", mode);
+  }
+
+  function viewToggleClass(mode: "grid" | "list") {
+    return `p-1.5 transition ${viewMode === mode ? "bg-amber-500 text-white" : "bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"}`;
+  }
+
   useEffect(() => {
     setSearchQuery(searchParams.get("q") ?? "");
   }, [searchParams]);
@@ -122,15 +131,15 @@ function RecipesContent() {
             <HelpButton content={RECIPES_HELP} />
             <div className="flex rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
               <button
-                onClick={() => { setViewMode("grid"); localStorage.setItem("ks_view_mode", "grid"); }}
-                className={`p-1.5 transition ${viewMode === "grid" ? "bg-amber-500 text-white" : "bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"}`}
+                onClick={() => handleViewModeChange("grid")}
+                className={viewToggleClass("grid")}
                 aria-label="Gitteransicht"
               >
                 <LayoutGrid size={16} />
               </button>
               <button
-                onClick={() => { setViewMode("list"); localStorage.setItem("ks_view_mode", "list"); }}
-                className={`p-1.5 transition ${viewMode === "list" ? "bg-amber-500 text-white" : "bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"}`}
+                onClick={() => handleViewModeChange("list")}
+                className={viewToggleClass("list")}
                 aria-label="Listenansicht"
               >
                 <List size={16} />
