@@ -419,7 +419,11 @@ def _parse_with_ollama_generate(text: str) -> Optional[ImportResult]:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-def parse_with_ai(text: str, skip_chat_completions: bool = False) -> Optional[ImportResult]:
+def parse_with_ai(
+    text: str,
+    skip_chat_completions: bool = False,
+    text_limit: int = _AI_TEXT_LIMIT,
+) -> Optional[ImportResult]:
     """Parse raw recipe text with the best available free AI backend.
 
     Tries the local LLM server (Ollama /v1 or LM Studio) first; falls
@@ -431,6 +435,10 @@ def parse_with_ai(text: str, skip_chat_completions: bool = False) -> Optional[Im
     endpoint is already known to be failing for the current request (e.g.
     it timed out for the vision step) so the fallback is reached immediately
     without another long wait.
+
+    *text_limit* overrides the default character limit applied to *text*
+    before sending it to the model.  Increase this for sources with a
+    larger context window (e.g. external AI or URL imports).
     """
     if not text.strip():
         return None
@@ -441,7 +449,7 @@ def parse_with_ai(text: str, skip_chat_completions: bool = False) -> Optional[Im
             {"role": "system", "content": _SYSTEM_PROMPT},
             {
                 "role": "user",
-                "content": f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
+                "content": f"Parse this recipe:\n\n{text[:text_limit]}",
             },
         ]
         # Use the best text model (auto-selected or overridden via LLM_MODEL).

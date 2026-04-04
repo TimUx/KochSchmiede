@@ -100,6 +100,7 @@ def _call_openai_text(
     text: str,
     api_key: str,
     model: str,
+    text_limit: int = _AI_TEXT_LIMIT,
 ) -> Optional[ImportResult]:
     """Call the OpenAI Responses API for text-based recipe extraction.
 
@@ -113,7 +114,7 @@ def _call_openai_text(
         response = client.responses.create(
             model=model,
             instructions=_SYSTEM_PROMPT,
-            input=f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
+            input=f"Parse this recipe:\n\n{text[:text_limit]}",
             response_format={
                 "type": "json_schema",
                 "json_schema": _OPENAI_RECIPE_SCHEMA,
@@ -235,21 +236,26 @@ def parse_with_external_ai(
     provider: str,
     api_key: str,
     model: str,
+    text_limit: int = _AI_TEXT_LIMIT,
 ) -> Optional[ImportResult]:
     """Parse recipe text using an external AI provider.
 
     Supports ``openai`` and ``gemini`` providers.  Returns ``None`` when the
     provider is unknown, credentials are missing, or the API call fails.
+
+    *text_limit* overrides the default character limit applied to *text*
+    before sending it to the model.  Increase this for sources that benefit
+    from more context (e.g. full web-page text).
     """
     if not text.strip() or not api_key or not model:
         return None
 
     if provider == "openai":
-        return _call_openai_text(text, api_key, model)
+        return _call_openai_text(text, api_key, model, text_limit=text_limit)
 
     if provider == "gemini":
         return _call_gemini(
-            f"Parse this recipe:\n\n{text[:_AI_TEXT_LIMIT]}",
+            f"Parse this recipe:\n\n{text[:text_limit]}",
             api_key,
             model,
         )

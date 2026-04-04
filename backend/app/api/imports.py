@@ -52,7 +52,7 @@ from app.services.ocr import (
     parse_ocr_text,
     render_pdf_first_page,
 )
-from app.services.scraper import scrape_url
+from app.services.scraper import scrape_url, scrape_url_with_text
 from app.services.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -471,33 +471,55 @@ def _best_image_ocr(image_bytes: bytes) -> str:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
+# Characters of raw page text sent to AI for URL imports.
+# Websites contain more prose than typical OCR output; modern models (both
+# local and external) can handle this comfortably within their context windows.
+_URL_TEXT_LIMIT = 6000
+
+
 @router.get("/url", response_model=ImportResult)
 def import_from_url(
     url: str = Query(..., description="Recipe website URL"),
     db: Session = Depends(get_db),
 ):
     site_settings = get_settings(db)
+    ext_ai = _get_external_ai(db)
+
     try:
-        result = scrape_url(url, check_ssrf=site_settings.ssrf_protection)
+        scrape_result, page_text = scrape_url_with_text(url, check_ssrf=site_settings.ssrf_protection)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not scrape URL: {e}")
 
-    # Try AI enhancement on scraped text (URL scraper already structures data)
-    combined_text = "\n".join(
-        [result.title or ""]
-        + result.ingredients
-        + [i for g in result.ingredient_groups for i in g.ingredients]
-        + result.steps
-    )
-    ai_result = parse_with_ai(combined_text)
-    if ai_result:
+    def _fill_metadata(ai_result: ImportResult) -> ImportResult:
+        """Copy source_url / image_url / title / description from the scrape
+        result when the AI did not extract them."""
         if not ai_result.source_url:
-            ai_result.source_url = result.source_url
+            ai_result.source_url = scrape_result.source_url
         if not ai_result.image_url:
-            ai_result.image_url = result.image_url
+            ai_result.image_url = scrape_result.image_url
+        if not ai_result.title and scrape_result.title:
+            ai_result.title = scrape_result.title
+        if not ai_result.description and scrape_result.description:
+            ai_result.description = scrape_result.description
         return ai_result
 
-    return result
+    # Try AI on the raw page text – this gives the model full context to
+    # correctly parse ingredients/steps even when the heuristic scraper
+    # returned fragmented data (e.g. amounts and names on separate lines).
+
+    # 1. External AI (OpenAI / Gemini) – preferred when configured.
+    if ext_ai:
+        ai_result = parse_with_external_ai(page_text, *ext_ai, text_limit=_URL_TEXT_LIMIT)
+        if ai_result:
+            return _fill_metadata(ai_result)
+
+    # 2. Local AI (Ollama / LM Studio).
+    ai_result = parse_with_ai(page_text, text_limit=_URL_TEXT_LIMIT)
+    if ai_result:
+        return _fill_metadata(ai_result)
+
+    # 3. Heuristic scrape result (always available, no AI required).
+    return scrape_result
 
 
 @router.post("/file", response_model=ImportResult)
