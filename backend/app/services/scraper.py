@@ -131,8 +131,8 @@ def _extract_ingredient_groups_from_jsonld(data: dict) -> list[ImportIngredientG
     return groups
 
 
-def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
-    """Scrape a recipe website and extract structured data."""
+def _fetch_html(url: str, check_ssrf: bool = True) -> str:
+    """Fetch the raw HTML of *url* with SSRF protection and bot-detection bypass."""
     if check_ssrf:
         _validate_url(url)
     else:
@@ -140,6 +140,7 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             raise ValueError("Only http/https URLs are allowed")
+
     if _HAS_CURL_CFFI:
         # curl_cffi 0.15.0+ has built-in redirect-SSRF protection and impersonates
         # Chrome's TLS stack (JA3/ALPN/HTTP2 settings) to bypass bot-detection.
@@ -177,7 +178,35 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
             )
             resp = session.get(url, timeout=15)
     resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "lxml")
+    return resp.text
+
+
+def _is_recipe_type(atype: object) -> bool:
+    """Return True when *atype* represents a Recipe schema type.
+
+    Handles both string and list forms, e.g. ``"Recipe"`` or
+    ``["Recipe", "https://schema.org/Recipe"]``.
+    """
+    if isinstance(atype, str):
+        return atype.lower() == "recipe"
+    if isinstance(atype, list):
+        return any(isinstance(t, str) and t.lower() == "recipe" for t in atype)
+    return False
+
+
+def _extract_page_text(soup: BeautifulSoup) -> str:
+    """Return a compact, clean plain-text representation of the page.
+
+    Strips empty lines and deduplicates consecutive whitespace so the result
+    is suitable for passing directly to an AI text model.
+    """
+    lines = [line.strip() for line in soup.get_text(separator="\n").splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
+def _parse_recipe_from_soup(soup: BeautifulSoup, url: str) -> ImportResult:
+    """Extract structured recipe data from an already-parsed BeautifulSoup object."""
+    import json
 
     # Title
     title: Optional[str] = None
@@ -199,9 +228,6 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
     if og_img and og_img.get("content"):
         image_url = og_img["content"]
 
-    # Try JSON-LD structured data first (most accurate)
-    import json
-
     ingredients: list[str] = []
     ingredient_groups: list[ImportIngredientGroup] = []
     steps: list[str] = []
@@ -213,22 +239,31 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
     for script in soup.find_all("script", type="application/ld+json"):
         try:
             data = json.loads(script.string or "")
+            # Unwrap top-level list
             if isinstance(data, list):
-                data = next((d for d in data if d.get("@type") in ("Recipe", "recipe")), {})
-            recipe_type = data.get("@type", "")
-            if recipe_type not in ("Recipe", "recipe"):
-                # check @graph
+                data = next(
+                    (d for d in data if isinstance(d, dict) and _is_recipe_type(d.get("@type"))),
+                    {},
+                )
+            if not isinstance(data, dict):
+                continue
+            # Check @type – support both string and list forms
+            if not _is_recipe_type(data.get("@type")):
+                # Try @graph
                 graph = data.get("@graph", [])
-                data = next((d for d in graph if d.get("@type") == "Recipe"), {})
+                data = next(
+                    (d for d in graph if isinstance(d, dict) and _is_recipe_type(d.get("@type"))),
+                    {},
+                )
+                if not data:
+                    continue
 
             if data.get("recipeIngredient"):
                 raw_ings = data["recipeIngredient"]
-                # Try to extract groups first
                 groups = _extract_ingredient_groups_from_jsonld(data)
                 if groups:
                     ingredient_groups = groups
                 else:
-                    # Flat list
                     ingredients = [
                         _clean_text(i) for i in raw_ings if isinstance(i, str)
                     ]
@@ -242,7 +277,6 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
                         elif isinstance(item, dict):
                             item_type = item.get("@type", "")
                             if item_type == "HowToSection":
-                                # Grouped steps – flatten for now
                                 for sub in item.get("itemListElement", []):
                                     if isinstance(sub, str):
                                         steps.append(_clean_text(sub))
@@ -259,7 +293,6 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
             if data.get("name") and not title:
                 title = _clean_text(data["name"])
 
-            # Timing fields
             if data.get("prepTime"):
                 prep_time = _parse_duration_iso(data["prepTime"])
             if data.get("cookTime"):
@@ -271,6 +304,9 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
                 m = re.search(r"\d+", str(raw_yield))
                 if m:
                     servings = int(m.group())
+
+            # Stop at the first valid Recipe node found
+            break
         except Exception:
             pass
 
@@ -295,4 +331,23 @@ def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
         cook_time=cook_time,
         servings=servings,
     )
+
+
+def scrape_url(url: str, check_ssrf: bool = True) -> ImportResult:
+    """Scrape a recipe website and extract structured data."""
+    html = _fetch_html(url, check_ssrf)
+    soup = BeautifulSoup(html, "lxml")
+    return _parse_recipe_from_soup(soup, url)
+
+
+def scrape_url_with_text(url: str, check_ssrf: bool = True) -> tuple[ImportResult, str]:
+    """Scrape a recipe website, returning the structured result and the raw page text.
+
+    The raw page text is a clean, line-separated plain-text representation of
+    the page suitable for passing to an AI text model as fallback when the
+    structured extraction is incomplete.
+    """
+    html = _fetch_html(url, check_ssrf)
+    soup = BeautifulSoup(html, "lxml")
+    return _parse_recipe_from_soup(soup, url), _extract_page_text(soup)
 
