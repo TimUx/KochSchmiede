@@ -8,26 +8,14 @@ import IngredientGroupEditor, {
   type Ingredient,
   type IngredientGroup,
 } from "@/components/IngredientGroupEditor";
+import { apiFetch, toAbsoluteAssetUrl, uploadRecipeImage } from "@/app/recipes/[id]/edit/api";
+import {
+  buildUpdatePayload,
+  mapIngredientGroupsFromApi,
+  mapIngredientsFromApi,
+} from "@/app/recipes/[id]/edit/mappers";
 import Link from "next/link";
 import { ArrowLeft, Plus, Trash2, Save, Loader2, AlertCircle, Tag, X, Upload } from "lucide-react";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
-
-function apiFetch(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem("ks_token");
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return fetch(`${API}${path}`, { ...options, headers }).then(async (res) => {
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(e.detail ?? "Request failed");
-    }
-    return res.status === 204 ? null : res.json();
-  });
-}
 
 export default function RecipeEditor({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -70,29 +58,8 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
         setCookTime(data.cook_time != null ? String(data.cook_time) : "");
         setServings(data.servings != null ? String(data.servings) : "4");
         setSourceUrl(data.source_url ?? "");
-        setIngredients(
-          (data.ingredients ?? []).map(
-            (i: { amount: string | null; unit: string | null; name: string }) => ({
-              amount: i.amount ?? "",
-              unit: i.unit ?? "",
-              name: i.name,
-            })
-          )
-        );
-        setIngredientGroups(
-          (data.ingredient_groups ?? []).map(
-            (g: { name: string; ingredients: { amount: string | null; unit: string | null; name: string }[] }) => ({
-              name: g.name,
-              ingredients: g.ingredients.map(
-                (i: { amount: string | null; unit: string | null; name: string }) => ({
-                  amount: i.amount ?? "",
-                  unit: i.unit ?? "",
-                  name: i.name,
-                })
-              ),
-            })
-          )
-        );
+        setIngredients(mapIngredientsFromApi(data.ingredients ?? []));
+        setIngredientGroups(mapIngredientGroupsFromApi(data.ingredient_groups ?? []));
         setSteps(
           (data.steps ?? [])
             .slice()
@@ -103,7 +70,7 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
         const url: string | null = data.image_url ?? null;
         setImageUrl(url);
         if (url) {
-          setImagePreview(url.startsWith("http") ? url : `${API}${url}`);
+          setImagePreview(toAbsoluteAssetUrl(url));
         }
       })
       .catch((e) => setError(e.message))
@@ -136,62 +103,31 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
     setImagePreview(URL.createObjectURL(file));
   }
 
-  async function uploadImage(file: File): Promise<string> {
-    const token = localStorage.getItem("ks_token");
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(`${API}/api/recipes/upload-image`, {
-      method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: form,
-    });
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(e.detail ?? "Bild-Upload fehlgeschlagen");
-    }
-    const data = await res.json();
-    return data.url;
-  }
-
   async function handleSave() {
     setSaving(true);
     setError(null);
     try {
       let finalImageUrl: string | null = imageUrl;
       if (imageFile) {
-        finalImageUrl = await uploadImage(imageFile);
+        finalImageUrl = await uploadRecipeImage(imageFile);
       }
       await apiFetch(`/api/recipes/${id}`, {
         method: "PUT",
-        body: JSON.stringify({
-          title,
-          description: description || null,
-          image_url: finalImageUrl,
-          prep_time: prepTime ? parseInt(prepTime) : null,
-          cook_time: cookTime ? parseInt(cookTime) : null,
-          servings: servings ? parseInt(servings) : null,
-          source_url: sourceUrl || null,
-          ingredients: ingredients.map((ing, idx) => ({
-            amount: ing.amount || null,
-            unit: ing.unit || null,
-            name: ing.name,
-            position: idx,
-          })),
-          ingredient_groups: ingredientGroups.map((g, gi) => ({
-            name: g.name,
-            position: gi,
-            ingredients: g.ingredients.map((ing, idx) => ({
-              amount: ing.amount || null,
-              unit: ing.unit || null,
-              name: ing.name,
-              position: idx,
-            })),
-          })),
-          steps: steps
-            .filter((s) => s.trim())
-            .map((instruction, idx) => ({ position: idx, instruction })),
-          tags,
-        }),
+        body: JSON.stringify(
+          buildUpdatePayload({
+            title,
+            description,
+            imageUrl: finalImageUrl,
+            prepTime,
+            cookTime,
+            servings,
+            sourceUrl,
+            ingredients,
+            ingredientGroups,
+            steps,
+            tags,
+          })
+        ),
       });
       router.push(`/recipes/${id}`);
     } catch (e) {
