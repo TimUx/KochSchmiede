@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import Link from "next/link";
 import HelpButton from "@/components/HelpButton";
+import Toggle from "@/app/admin/components/Toggle";
+import AiHelpModal from "@/app/admin/components/AiHelpModal";
+import { InlineAlert, SectionCard } from "@/app/admin/components/AdminUi";
+import { ADMIN_HELP, AI_HELP, PROVIDER_MODELS } from "@/app/admin/constants";
+import { apiFetch, ApiError, uploadAdminAsset } from "@/app/admin/api";
+import type { SiteSettings, UnitRecord, UserRecord } from "@/app/admin/types";
 import {
   Shield,
   Users,
@@ -29,189 +35,15 @@ import {
   RotateCcw,
   Bot,
   HelpCircle,
-  ExternalLink,
 } from "lucide-react";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface SiteSettings {
-  site_mode: "public" | "private";
-  registration_mode: "open" | "admin_only";
-  ssrf_protection: boolean;
-  logo_light_url?: string | null;
-  logo_dark_url?: string | null;
-  favicon_url?: string | null;
-  appicon_url?: string | null;
-  ext_ai_provider?: string | null;
-  ext_ai_model?: string | null;
-  ext_ai_key_configured?: boolean;
-}
-
-interface UserRecord {
-  id: string;
-  username: string;
-  email: string;
-  is_active: boolean;
-  is_admin: boolean;
-  created_at: string;
-}
-
-interface UnitRecord {
-  id: string;
-  name: string;
-  position: number;
-}
-
-// ─── API helpers (read token from localStorage) ───────────────────────────────
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
-
-class ApiError extends Error {
-  constructor(message: string, public status: number) {
-    super(message);
-  }
-}
-
-async function apiFetch(path: string, options: RequestInit = {}) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("ks_token") : null;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(`${API}${path}`, { ...options, headers });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(err.detail ?? "Request failed", res.status);
-  }
-  return res.status === 204 ? null : res.json();
-}
-
-// ─── Toggle component ─────────────────────────────────────────────────────────
-
-function Toggle({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 ${
-        checked ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-600"
-      } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-6" : "translate-x-1"
-        }`}
-      />
-    </button>
-  );
-}
-
-// ─── AI Help content ──────────────────────────────────────────────────────────
-
-const AI_HELP: Record<
-  string,
-  { title: string; steps: string[]; link: string; linkLabel: string }
-> = {
-  openai: {
-    title: "OpenAI API-Schlüssel erstellen",
-    steps: [
-      "Öffne platform.openai.com und melde dich an (oder erstelle ein kostenloses Konto).",
-      'Klicke oben rechts auf dein Profilbild → „API keys" (oder gehe direkt zu platform.openai.com/api-keys).',
-      'Klicke auf „+ Create new secret key", vergib einen Namen (z. B. „KochSchmiede") und bestätige.',
-      'Kopiere den angezeigten Schlüssel (er beginnt mit „sk-…") – er wird nur einmal angezeigt!',
-      'Füge den Schlüssel oben in das Feld „API-Schlüssel" ein.',
-      "Empfohlenes Modell: gpt-4o (Vision + Text) oder gpt-4o-mini (günstiger).",
-    ],
-    link: "https://platform.openai.com/api-keys",
-    linkLabel: "platform.openai.com/api-keys",
-  },
-  gemini: {
-    title: "Google Gemini API-Schlüssel erstellen",
-    steps: [
-      "Öffne aistudio.google.com und melde dich mit deinem Google-Konto an.",
-      'Klicke links in der Seitenleiste auf „Get API key" (oder „API-Schlüssel abrufen").',
-      'Wähle „Create API key in new project" oder wähle ein bestehendes Google-Cloud-Projekt.',
-      'Kopiere den generierten Schlüssel (er beginnt mit „AIza…").',
-      'Füge den Schlüssel oben in das Feld „API-Schlüssel" ein.',
-      "Empfohlenes Modell: gemini-2.5-flash (schnell, günstig) oder gemini-2.5-pro (höchste Qualität).",
-    ],
-    link: "https://aistudio.google.com/app/apikey",
-    linkLabel: "aistudio.google.com/app/apikey",
-  },
-};
-
-// ─── Available models per provider ────────────────────────────────────────────
-
-const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
-  openai: [
-    { value: "gpt-4o",       label: "GPT-4o (empfohlen)" },
-    { value: "gpt-4o-mini",  label: "GPT-4o mini (schnell & günstig)" },
-    { value: "gpt-4-turbo",  label: "GPT-4 Turbo" },
-    { value: "gpt-4",        label: "GPT-4" },
-    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-  ],
-  gemini: [
-    { value: "gemini-2.5-flash",        label: "Gemini 2.5 Flash (empfohlen)" },
-    { value: "gemini-2.5-pro",          label: "Gemini 2.5 Pro" },
-    { value: "gemini-3-flash-preview",  label: "Gemini 3 Flash Preview" },
-    { value: "gemini-3.1-pro-preview",  label: "Gemini 3.1 Pro Preview" },
-    { value: "gemini-2.0-flash",        label: "Gemini 2.0 Flash" },
-    { value: "gemini-1.5-flash",        label: "Gemini 1.5 Flash (veraltet)" },
-    { value: "gemini-1.5-pro",          label: "Gemini 1.5 Pro (veraltet)" },
-  ],
-};
-
-// ─── Page-level help content ──────────────────────────────────────────────────
-
-const ADMIN_HELP = {
-  title: "Admin-Bereich",
-  sections: [
-    {
-      heading: "Einstellungen",
-      items: [
-        "Sichtbarkeit: Lege fest, ob die App öffentlich oder nur für eingeloggte Nutzer sichtbar ist.",
-        "Registrierung: Erlaube freie Registrierung oder beschränke sie auf Admin-Einladungen.",
-        "Branding: Lade eigene Logos, Favicon und App-Icon hoch.",
-        "KI-Import: Konfiguriere einen externen KI-Anbieter (OpenAI / Gemini) für bessere Rezept-Erkennung.",
-      ],
-    },
-    {
-      heading: "Benutzerverwaltung",
-      items: [
-        "Lege neue Benutzer an oder deaktiviere bestehende Accounts.",
-        "Vergib oder entziehe Admin-Rechte.",
-      ],
-    },
-    {
-      heading: "Einheiten",
-      items: [
-        "Verwalte die Liste der verfügbaren Maßeinheiten für Zutaten.",
-      ],
-    },
-  ],
-  docsLinks: [
-    {
-      label: "Admin-Dokumentation öffnen",
-      url: "https://github.com/TimUx/KochSchmiede/blob/main/README.md",
-    },
-  ],
-};
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
+  const formInputClass =
+    "w-full px-3 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400";
+  const iconActionButtonClass = "p-1.5 rounded-lg text-zinc-400 transition";
+
   const router = useRouter();
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [users, setUsers] = useState<UserRecord[]>([]);
@@ -453,23 +285,22 @@ export default function AdminPage() {
     }
   }
 
+  function startRenamingUnit(unitId: string, name: string) {
+    setRenamingUnit(unitId);
+    setRenameValue(name);
+    setUnitError(null);
+  }
+
+  function stopRenamingUnit() {
+    setRenamingUnit(null);
+    setRenameValue("");
+  }
+
   async function uploadLogo(logoType: string, file: File) {
     setLogoError(null);
     setLogoUploading(logoType);
     try {
-      const token = localStorage.getItem("ks_token");
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch(`${API}/api/admin/logos/${logoType}`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail ?? "Upload fehlgeschlagen");
-      }
-      const updated = await res.json();
+      const updated = await uploadAdminAsset(logoType, file);
       setSettings(updated);
     } catch (e: unknown) {
       setLogoError(e instanceof Error ? e.message : "Upload fehlgeschlagen");
@@ -541,13 +372,7 @@ export default function AdminPage() {
             {activeTab === "settings" && settings && (
               <div className="space-y-4">
                 {/* Site visibility */}
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
-                    <h2 className="font-semibold text-sm flex items-center gap-2">
-                      <Globe size={16} className="text-amber-500" />
-                      Sichtbarkeit der Seite
-                    </h2>
-                  </div>
+                <SectionCard title="Sichtbarkeit der Seite" icon={Globe}>
                   <div className="p-4 space-y-3">
                     {(
                       [
@@ -593,16 +418,10 @@ export default function AdminPage() {
                       </button>
                     ))}
                   </div>
-                </div>
+                </SectionCard>
 
                 {/* Registration mode */}
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
-                    <h2 className="font-semibold text-sm flex items-center gap-2">
-                      <Users size={16} className="text-amber-500" />
-                      Benutzerregistrierung
-                    </h2>
-                  </div>
+                <SectionCard title="Benutzerregistrierung" icon={Users}>
                   <div className="p-4 space-y-3">
                     {(
                       [
@@ -638,7 +457,7 @@ export default function AdminPage() {
                       </button>
                     ))}
                   </div>
-                </div>
+                </SectionCard>
 
                 {/* SSRF Protection */}
                 <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800">
@@ -672,21 +491,14 @@ export default function AdminPage() {
                 </div>
 
                 {/* Logos & Icons */}
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
-                    <h2 className="font-semibold text-sm flex items-center gap-2">
-                      <Image size={16} className="text-amber-500" />
-                      Logos &amp; Icons
-                    </h2>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                      Eigene Logos hochladen (PNG, JPEG, WEBP · max. 5 MB)
-                    </p>
-                  </div>
+                <SectionCard
+                  title="Logos & Icons"
+                  icon={Image}
+                  description="Eigene Logos hochladen (PNG, JPEG, WEBP · max. 5 MB)"
+                >
                   {logoError && (
-                    <div className="mx-4 mt-3 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl p-2 text-xs">
-                      <AlertCircle size={12} className="shrink-0" />
-                      <span className="flex-1">{logoError}</span>
-                      <button onClick={() => setLogoError(null)}><X size={12} /></button>
+                    <div className="mx-4 mt-3">
+                      <InlineAlert tone="error" message={logoError} onClose={() => setLogoError(null)} />
                     </div>
                   )}
                   <div className="p-4 space-y-3">
@@ -755,34 +567,25 @@ export default function AdminPage() {
                       );
                     })}
                   </div>
-                </div>
+                </SectionCard>
 
                 {/* External AI */}
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-100 dark:border-zinc-800 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
-                    <h2 className="font-semibold text-sm flex items-center gap-2">
-                      <Bot size={16} className="text-amber-500" />
-                      Externe KI (Import)
-                    </h2>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                      Optionaler API-Dienst für den Import (z.&nbsp;B. ChatGPT, Google Gemini).
-                      Besonders hilfreich für handgeschriebene Rezepte.
-                    </p>
-                  </div>
+                <SectionCard
+                  title="Externe KI (Import)"
+                  icon={Bot}
+                  description="Optionaler API-Dienst für den Import (z. B. ChatGPT, Google Gemini). Besonders hilfreich für handgeschriebene Rezepte."
+                >
 
                   <div className="p-4 space-y-3">
                     {extAiError && (
-                      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl p-2 text-xs">
-                        <AlertCircle size={12} className="shrink-0" />
-                        <span className="flex-1">{extAiError}</span>
-                        <button onClick={() => setExtAiError(null)}><X size={12} /></button>
-                      </div>
+                      <InlineAlert
+                        tone="error"
+                        message={extAiError}
+                        onClose={() => setExtAiError(null)}
+                      />
                     )}
                     {extAiSuccess && (
-                      <div className="flex items-center gap-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 rounded-xl p-2 text-xs">
-                        <Check size={12} className="shrink-0" />
-                        Externe KI gespeichert.
-                      </div>
+                      <InlineAlert tone="success" message="Externe KI gespeichert." />
                     )}
 
                     {/* Provider */}
@@ -895,7 +698,7 @@ export default function AdminPage() {
                       )}
                     </div>
                   </div>
-                </div>
+                </SectionCard>
               </div>
             )}
             {activeTab === "users" && (
@@ -920,14 +723,14 @@ export default function AdminPage() {
                       value={newUsername}
                       onChange={(e) => setNewUsername(e.target.value)}
                       placeholder="Benutzername"
-                      className="w-full px-3 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      className={formInputClass}
                     />
                     <input
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       placeholder="E-Mail"
                       type="email"
-                      className="w-full px-3 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      className={formInputClass}
                     />
                     <div className="relative">
                       <input
@@ -935,7 +738,7 @@ export default function AdminPage() {
                         onChange={(e) => setNewPassword(e.target.value)}
                         placeholder="Passwort"
                         type={showNewPw ? "text" : "password"}
-                        className="w-full px-3 py-2.5 pr-10 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        className={`${formInputClass} pr-10`}
                       />
                       <button
                         type="button"
@@ -993,14 +796,14 @@ export default function AdminPage() {
                           <button
                             onClick={() => toggleAdmin(user.id)}
                             title={user.is_admin ? "Admin entziehen" : "Admin ernennen"}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-amber-500 transition"
+                            className={`${iconActionButtonClass} hover:text-amber-500`}
                           >
                             <Crown size={15} />
                           </button>
                           <button
                             onClick={() => deleteUser(user.id, user.username)}
                             title="Benutzer löschen"
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 transition"
+                            className={`${iconActionButtonClass} hover:text-red-500`}
                           >
                             <Trash2 size={15} />
                           </button>
@@ -1031,7 +834,7 @@ export default function AdminPage() {
                       onChange={(e) => setNewUnitName(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && addUnit()}
                       placeholder="z.B. Tüte, Schuss, Zehe"
-                      className="flex-1 px-3 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      className={`flex-1 ${formInputClass}`}
                     />
                     <button
                       onClick={addUnit}
@@ -1064,7 +867,7 @@ export default function AdminPage() {
                               onChange={(e) => setRenameValue(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") renameUnit(unit.id);
-                                if (e.key === "Escape") { setRenamingUnit(null); setRenameValue(""); }
+                                if (e.key === "Escape") stopRenamingUnit();
                               }}
                               className="flex-1 px-2 py-1 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-amber-400 text-sm focus:outline-none"
                             />
@@ -1076,7 +879,7 @@ export default function AdminPage() {
                               <Check size={14} />
                             </button>
                             <button
-                              onClick={() => { setRenamingUnit(null); setRenameValue(""); }}
+                              onClick={stopRenamingUnit}
                               title="Abbrechen"
                               className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
                             >
@@ -1087,7 +890,7 @@ export default function AdminPage() {
                           <>
                             <span className="flex-1 text-sm font-medium">{unit.name}</span>
                             <button
-                              onClick={() => { setRenamingUnit(unit.id); setRenameValue(unit.name); setUnitError(null); }}
+                              onClick={() => startRenamingUnit(unit.id, unit.name)}
                               title="Umbenennen"
                               className="p-1.5 rounded-lg text-zinc-400 hover:text-amber-500 transition"
                             >
@@ -1112,62 +915,15 @@ export default function AdminPage() {
         )}
       </main>
 
-      {/* ── AI Help Modal ─────────────────────────────────────────────────── */}
-      {showAiHelp && AI_HELP[showAiHelp] && (() => {
-        const help = AI_HELP[showAiHelp];
-        return (
-          <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowAiHelp(null)}
-          >
-            <div
-              className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl shadow-xl overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-                <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                  <HelpCircle size={16} className="text-amber-500" />
-                </div>
-                <h3 className="font-semibold text-sm flex-1">{help.title}</h3>
-                <button
-                  onClick={() => setShowAiHelp(null)}
-                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Steps */}
-              <div className="px-5 py-4 space-y-3">
-                <ol className="space-y-2.5">
-                  {help.steps.map((step, i) => (
-                    <li key={i} className="flex gap-3 text-sm">
-                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center mt-0.5">
-                        {i + 1}
-                      </span>
-                      <span className="text-zinc-700 dark:text-zinc-300 leading-snug">{step}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-
-              {/* Link */}
-              <div className="px-5 pb-5">
-                <a
-                  href={help.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition"
-                >
-                  <ExternalLink size={15} />
-                  {help.linkLabel} öffnen
-                </a>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {showAiHelp && AI_HELP[showAiHelp] && (
+        <AiHelpModal
+          title={AI_HELP[showAiHelp].title}
+          steps={AI_HELP[showAiHelp].steps}
+          link={AI_HELP[showAiHelp].link}
+          linkLabel={AI_HELP[showAiHelp].linkLabel}
+          onClose={() => setShowAiHelp(null)}
+        />
+      )}
     </AppShell>
   );
 }
