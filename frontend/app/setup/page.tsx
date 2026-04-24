@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import Logo from "@/components/Logo";
 import {
+  fetchSetupStatus,
+  loginForSetup,
+  registerAdmin,
+  saveInitialSettings,
+} from "@/app/setup/api";
+import { validateAdminStep } from "@/app/setup/validation";
+import {
   Check,
   ChevronRight,
   Eye,
@@ -18,8 +25,6 @@ import {
   User,
   Users,
 } from "lucide-react";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -110,8 +115,7 @@ export default function SetupPage() {
     if (savedLang) setLanguage(savedLang);
 
     // If already set up, go to login
-    fetch(`${API}/api/setup/status`)
-      .then((r) => r.json())
+    fetchSetupStatus()
       .then((data) => {
         if (!data.needs_setup) router.replace("/login");
       })
@@ -120,24 +124,10 @@ export default function SetupPage() {
 
   // ── Validation ──────────────────────────────────────────────────────────────
 
-  function validateStep1(): string | null {
-    if (!username.trim()) return "Benutzername ist erforderlich";
-    if (username.trim().length < 3) return "Benutzername muss mindestens 3 Zeichen haben";
-    if (!email.trim()) return "E-Mail-Adresse ist erforderlich";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      return "Ungültige E-Mail-Adresse";
-    if (!password) return "Passwort ist erforderlich";
-    if (password.length < 8) return "Passwort muss mindestens 8 Zeichen haben";
-    if (password !== confirmPassword) return "Passwörter stimmen nicht überein";
-    return null;
-  }
-
-  // ── Navigation ──────────────────────────────────────────────────────────────
-
   function next() {
     setStepError(null);
     if (step === 1) {
-      const err = validateStep1();
+      const err = validateAdminStep({ username, email, password, confirmPassword });
       if (err) {
         setStepError(err);
         return;
@@ -159,44 +149,21 @@ export default function SetupPage() {
     setError(null);
     setLoading(true);
     try {
-      // 1. Register admin user
-      const regRes = await fetch(`${API}/api/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: username.trim(),
-          email: email.trim(),
-          password,
-        }),
+      await registerAdmin({
+        username: username.trim(),
+        email: email.trim(),
+        password,
       });
-      if (!regRes.ok) {
-        const e = await regRes.json().catch(() => ({}));
-        throw new Error(e.detail ?? "Registrierung fehlgeschlagen");
-      }
-
-      // 2. Login to obtain token
-      const loginRes = await fetch(`${API}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ username: username.trim(), password }).toString(),
-      });
-      if (!loginRes.ok) throw new Error("Login fehlgeschlagen");
-      const { access_token } = await loginRes.json();
+      const access_token = await loginForSetup(username.trim(), password);
       localStorage.setItem("ks_token", access_token);
 
-      // 3. Apply site settings
-      const settingsRes = await fetch(`${API}/api/admin/settings`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${access_token}`,
-        },
-        body: JSON.stringify({
+      await saveInitialSettings(
+        {
           site_mode: siteMode,
           registration_mode: registrationMode,
-        }),
-      });
-      if (!settingsRes.ok) throw new Error("Einstellungen konnten nicht gespeichert werden");
+        },
+        access_token,
+      );
 
       // 4. Persist language preference
       localStorage.setItem("ks_language", language);

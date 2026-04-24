@@ -7,6 +7,10 @@ import ThemeToggle from "@/components/ThemeToggle";
 import WakeLockToggle from "@/components/WakeLockToggle";
 import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
+import { apiFetch, exportRecipes } from "@/app/settings/api";
+import { LANGUAGES, SETTINGS_HELP } from "@/app/settings/constants";
+import PasswordInput from "@/app/settings/components/PasswordInput";
+import type { UserProfile } from "@/app/settings/types";
 import {
   User,
   Lock,
@@ -17,65 +21,11 @@ import {
   Download,
   ShieldCheck,
   Check,
-  Eye,
-  EyeOff,
   Loader2,
   AlertCircle,
   X,
   MonitorCheck,
 } from "lucide-react";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
-
-interface UserProfile {
-  id: string;
-  username: string;
-  email: string;
-  is_admin: boolean;
-}
-
-const LANGUAGES = [
-  { code: "de", label: "Deutsch", flag: "🇩🇪" },
-  { code: "en", label: "English", flag: "🇬🇧" },
-];
-
-function apiFetch(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem("ks_token");
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return fetch(`${API}${path}`, { ...options, headers }).then(async (res) => {
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(e.detail ?? "Request failed");
-    }
-    return res.status === 204 ? null : res.json();
-  });
-}
-
-const SETTINGS_HELP = {
-  title: "Einstellungen",
-  sections: [
-    {
-      items: [
-        "Darstellung: Wechsle zwischen hellem und dunklem Design.",
-        "Sprache: Stelle die Anzeigesprache der App ein (Deutsch / Englisch).",
-        "Display-Wachhalten: Verhindert, dass der Bildschirm beim Kochen ausgeht.",
-        "Passwort ändern: Lege ein neues Passwort für deinen Account fest.",
-        "Daten exportieren: Lade alle deine Rezepte als JSON-Datei herunter.",
-        "Administratoren finden zusätzlich einen Link zum Admin-Bereich.",
-      ],
-    },
-  ],
-  docsLinks: [
-    {
-      label: "Benutzerhandbuch öffnen",
-      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
-    },
-  ],
-};
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -151,12 +101,7 @@ export default function SettingsPage() {
   async function handleExport() {
     setExporting(true);
     try {
-      const token = localStorage.getItem("ks_token");
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(`${API}/api/recipes/`, { headers });
-      if (!res.ok) throw new Error("Fehler beim Exportieren");
-      const data = await res.json();
+      const data = await exportRecipes();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -332,38 +277,22 @@ export default function SettingsPage() {
                         <Check size={14} /> Passwort erfolgreich geändert
                       </div>
                     )}
-                    <div className="relative">
-                      <input
-                        type={showCurrentPw ? "text" : "password"}
-                        value={currentPw}
-                        onChange={(e) => setCurrentPw(e.target.value)}
-                        placeholder="Aktuelles Passwort"
-                        className={`${inputCls} pr-10`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowCurrentPw((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
-                      >
-                        {showCurrentPw ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
-                    <div className="relative">
-                      <input
-                        type={showNewPw ? "text" : "password"}
-                        value={newPw}
-                        onChange={(e) => setNewPw(e.target.value)}
-                        placeholder="Neues Passwort (min. 8 Zeichen)"
-                        className={`${inputCls} pr-10`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPw((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
-                      >
-                        {showNewPw ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
+                    <PasswordInput
+                      value={currentPw}
+                      onChange={setCurrentPw}
+                      placeholder="Aktuelles Passwort"
+                      visible={showCurrentPw}
+                      onToggleVisible={() => setShowCurrentPw((v) => !v)}
+                      className={inputCls}
+                    />
+                    <PasswordInput
+                      value={newPw}
+                      onChange={setNewPw}
+                      placeholder="Neues Passwort (min. 8 Zeichen)"
+                      visible={showNewPw}
+                      onToggleVisible={() => setShowNewPw((v) => !v)}
+                      className={inputCls}
+                    />
                     <input
                       type="password"
                       value={confirmPw}
