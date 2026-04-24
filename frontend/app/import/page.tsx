@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
 import HelpButton from "@/components/HelpButton";
+import { IMPORT_HELP } from "@/app/import/constants";
+import { apiFetch } from "@/app/import/api";
+import { buildRecipePayload } from "@/app/import/utils";
+import type { ImportResult, ImportTab, ImageSearchItem } from "@/app/import/types";
 import {
   Globe,
   FileText,
@@ -20,166 +24,10 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 
-type ImportTab = "url" | "file" | "camera";
-
-type IngredientGroup = {
-  name: string;
-  ingredients: string[];
-};
-
-type ImportResult = {
-  title?: string;
-  description?: string;
-  image_url?: string;
-  source_url?: string;
-  ingredients: string[];
-  ingredient_groups: IngredientGroup[];
-  steps: string[];
-  tags: string[];
-  prep_time?: number;
-  cook_time?: number;
-  servings?: number;
-  import_warning?: string;
-};
-
-type ImageSearchItem = {
-  thumb_url: string;
-  url: string;
-  photographer: string;
-  source_url: string;
-  source?: string;
-  source_name?: string;
-  source_home?: string;
-};
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
-
-/**
- * Ordered list of units recognised when parsing raw ingredient strings.
- * Longer/more-specific entries must come before shorter ones to avoid
- * partial matches (e.g. "Zehe/n" before "Zehe", "kg" before "g").
- */
-const KNOWN_UNITS = [
-  "Scheibe(n)", "Scheibe/n", "Scheiben", "Scheibe",
-  "Stangen", "Stange",
-  "Blätter", "Blatt",
-  "Flaschen", "Flasche",
-  "Prisen", "Prise",
-  "Tassen", "Tasse",
-  "Schalen", "Schale",
-  "Dosen", "Dose",
-  "Zweige", "Zweig",
-  "Zehe/n", "Zehen", "Zehe",
-  "Bunde", "Bund",
-  "Handvoll",
-  "Tropfen",
-  "Becher",
-  "Schuss",
-  "Stücke", "Stück", "Stk.",
-  "Packung", "Pck.", "Pck", "Pkg.",
-  "Gläser", "Glas",
-  "Msp.",
-  "cups", "cup",
-  "tbsp", "tsp",
-  "bunch",
-  "EL", "TL",
-  "kg", "ml", "cl", "dl",
-  "oz", "lb",
-  "cm",
-  "g", "l",
-];
-
-/**
- * Parse a raw ingredient string like "500 g Magerquark" into its
- * constituent parts: numeric amount, unit, and ingredient name.
- *
- * Handles:
- *  - integers and decimals:  "500", "1.5", "1,5"
- *  - written fractions:      "1/2", "3/4"
- *  - Unicode fractions:      "½", "¼", "¾", "⅓", "⅔", …  (U+00BC–U+00BE, U+2150–U+215E)
- *  - mixed amounts:          "1½", "1 ½"
- *  - "n. B." / "n.B."       (nach Bedarf / to taste)
- *  - approximate prefixes:   "ca.", "etwa", "~", "≈"  (stripped before parsing)
- */
-function parseIngredient(raw: string): { amount: string; unit: string; name: string } {
-  // Strip leading approximate-quantity markers before any other parsing.
-  const trimmed = raw.trim().replace(/^(?:ca\.\s*|etwa\s*|[~≈]\s*)/i, "");
-
-  // Unicode fraction characters (¼ ½ ¾ ⅓ ⅔ ⅛ ⅜ ⅝ ⅞ …)
-  const FRAC = "\u00BC-\u00BE\u2150-\u215E";
-
-  // Amount token: integer/decimal, optional written fraction (1/2), optional
-  // unicode fraction suffix (1½), standalone unicode fraction, or "n. B."
-  const AMT =
-    `(?:\\d+[,.]?\\d*(?:\\s*/\\s*\\d+)?(?:\\s*[${FRAC}])?` +  // 1, 1.5, 1/2, 1½
-    `|[${FRAC}]` +                                              // ½ alone
-    `|n\\.?\\s*[Bb]\\.)`;                                       // n. B.
-
-  // Build a regex alternation from the known-units list, escaping special chars.
-  const unitAlt = KNOWN_UNITS
-    .map((u) => u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
-
-  // Try: amount  unit  name
-  const withUnit = new RegExp(
-    `^(${AMT})\\s+(${unitAlt})\\.?\\s+(.+)$`,
-    "iu",
-  );
-  // Try: amount  name  (no recognisable unit)
-  const withAmountOnly = new RegExp(`^(${AMT})\\s+(.+)$`, "iu");
-
-  let m = trimmed.match(withUnit);
-  if (m) {
-    return { amount: m[1].replace(",", ".").trim(), unit: m[2].trim(), name: m[3].trim() };
-  }
-  m = trimmed.match(withAmountOnly);
-  if (m) {
-    return { amount: m[1].replace(",", ".").trim(), unit: "", name: m[2].trim() };
-  }
-  return { amount: "", unit: "", name: trimmed };
-}
-
-function apiFetch(path: string, options: RequestInit = {}) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("ks_token") : null;
-  const isFormData = options.body instanceof FormData;
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string>),
-  };
-  if (!isFormData) {
-    headers["Content-Type"] = "application/json";
-  }
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return fetch(`${API}${path}`, { ...options, headers }).then(async (res) => {
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(e.detail ?? "Request failed");
-    }
-    return res.status === 204 ? null : res.json();
-  });
-}
-
-const IMPORT_HELP = {
-  title: "Import Center",
-  sections: [
-    {
-      items: [
-        "URL: Füge den Link zu einer Rezept-Webseite ein – KochSchmiede liest das Rezept automatisch aus.",
-        "Datei: Lade ein PDF oder Bild (JPG, PNG, HEIC) mit einem Rezept hoch. Die KI oder OCR extrahiert die Inhalte.",
-        "Kamera: Fotografiere ein Rezept direkt mit deiner Kamera.",
-        "Nach dem Import kannst du das erkannte Rezept prüfen und bei Bedarf korrigieren, bevor du es speicherst.",
-        "Für beste Ergebnisse bei Bildern: gutes Licht und möglichst geringe Verzerrung.",
-      ],
-    },
-  ],
-  docsLinks: [
-    {
-      label: "Benutzerhandbuch öffnen",
-      url: "https://github.com/TimUx/KochSchmiede/blob/main/USERGUIDE.md",
-    },
-  ],
-};
-
 export default function ImportPage() {
+  const dropzoneClass =
+    "w-full flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl text-zinc-500 hover:border-amber-400 transition";
+
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ImportTab>("url");
   const [url, setUrl] = useState("");
@@ -204,6 +52,11 @@ export default function ImportPage() {
   const [imageSearchLoading, setImageSearchLoading] = useState(false);
   const [imageSearchError, setImageSearchError] = useState<string | null>(null);
   const [imageSearchDone, setImageSearchDone] = useState(false);
+
+  const resetImportState = () => {
+    setError(null);
+    setResult(null);
+  };
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -254,8 +107,7 @@ export default function ImportPage() {
   const importFromUrl = async () => {
     if (!url) return;
     setLoading(true);
-    setError(null);
-    setResult(null);
+    resetImportState();
     try {
       const data = await apiFetch(`/api/import/url?url=${encodeURIComponent(url)}`);
       handleApiResult(data);
@@ -270,8 +122,7 @@ export default function ImportPage() {
 
   const importFromFiles = async (files: FileList) => {
     setLoading(true);
-    setError(null);
-    setResult(null);
+    resetImportState();
     try {
       const formData = new FormData();
       if (files.length === 1) {
@@ -375,8 +226,7 @@ export default function ImportPage() {
       async (blob) => {
         if (!blob) return;
         setLoading(true);
-        setError(null);
-        setResult(null);
+        resetImportState();
         try {
           const formData = new FormData();
           formData.append("file", blob, "capture.jpg");
@@ -403,40 +253,7 @@ export default function ImportPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      // Map flat ingredients to structured format, parsing amount/unit/name
-      const ingredients = result.ingredients.map((raw, idx) => {
-        const { amount, unit, name } = parseIngredient(raw);
-        return { amount: amount || null, unit: unit || null, name, position: idx };
-      });
-      // Map ingredient groups, also parsing each ingredient string
-      const ingredient_groups = result.ingredient_groups.map((g, gi) => ({
-        name: g.name,
-        position: gi,
-        ingredients: g.ingredients.map((raw, idx) => {
-          const { amount, unit, name } = parseIngredient(raw);
-          return { amount: amount || null, unit: unit || null, name, position: idx };
-        }),
-      }));
-      // Map steps
-      const steps = result.steps.map((instruction, idx) => ({
-        position: idx,
-        instruction,
-      }));
-
-      const payload = {
-        title: result.title || "Importiertes Rezept",
-        description: result.description ?? null,
-        image_url: result.image_url ?? null,
-        source_url: result.source_url ?? null,
-        prep_time: result.prep_time ?? null,
-        cook_time: result.cook_time ?? null,
-        servings: result.servings ?? null,
-        ingredients,
-        ingredient_groups,
-        steps,
-        tags: result.tags,
-      };
-
+      const payload = buildRecipePayload(result);
       const data = await apiFetch("/api/recipes/", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -473,8 +290,7 @@ export default function ImportPage() {
               key={id}
               onClick={() => {
                 setActiveTab(id);
-                setResult(null);
-                setError(null);
+                resetImportState();
               }}
               className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition ${
                 activeTab === id
@@ -554,7 +370,7 @@ export default function ImportPage() {
             <button
               onClick={() => fileRef.current?.click()}
               disabled={loading}
-              className="w-full flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl text-zinc-500 hover:border-amber-400 transition"
+              className={dropzoneClass}
             >
               {loading ? (
                 <Loader2 size={32} className="animate-spin text-amber-500" />
@@ -599,7 +415,7 @@ export default function ImportPage() {
                 <button
                   onClick={() => cameraFileRef.current?.click()}
                   disabled={loading}
-                  className="w-full flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl text-zinc-500 hover:border-amber-400 transition"
+                  className={dropzoneClass}
                 >
                   {loading ? (
                     <Loader2 size={32} className="animate-spin text-amber-500" />
@@ -621,7 +437,7 @@ export default function ImportPage() {
                 )}
                 <button
                   onClick={startCamera}
-                  className="w-full flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-2xl text-zinc-500 hover:border-amber-400 transition"
+                  className={dropzoneClass}
                 >
                   <Camera size={32} />
                   <span className="text-sm">Kamera starten</span>
