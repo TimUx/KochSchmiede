@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-quality:
+    name: Backend Quality (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Compile check (syntax)
+        run: python -m compileall -q app
+
+  frontend-quality:
+    name: Frontend Quality (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+  backend-functional:
+    name: Backend Functional Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kochschmiede
+          POSTGRES_PASSWORD: ci-secret
+          POSTGRES_DB: kochschmiede
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kochschmiede"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "******localhost:5432/kochschmiede"
+      SECRET_KEY: ci-test-secret-key-with-at-least-32-chars
+      OLLAMA_AUTO_PULL: "false"
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Start API server
+        run: |
+          mkdir -p uploads
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not start in time"
+          exit 1
+
+      - name: Test health endpoint
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
+
+      - name: Test setup status endpoint
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/setup/status | grep -q '"needs_setup":true'
+
+      - name: Test public settings endpoint
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/settings/public
+
+      - name: Test units endpoint
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/units | grep -q '"name"'
