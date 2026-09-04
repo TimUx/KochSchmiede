@@ -23,6 +23,7 @@ services:
     environment:
       DATABASE_URL: postgresql://kochschmiede:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}@postgres:5432/kochschmiede
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env file}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000","http://${DOMAIN:-localhost}","http://${DOMAIN:-localhost}:${PORT:-3000}"]'
       # AI parsing backends – free / local only (see .env.example for setup)
       LLM_API_KEY: ${LLM_API_KEY:-}
