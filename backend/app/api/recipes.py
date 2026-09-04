@@ -1,8 +1,11 @@
 import uuid
+from io import BytesIO
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from PIL import Image, UnidentifiedImageError
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -108,8 +111,8 @@ def list_tags(
 def list_recipes(
     q: Optional[str] = Query(None, description="Search query"),
     tag: Optional[str] = Query(None),
-    skip: int = 0,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=100),
+    skip: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user=Depends(_get_optional_user),
 ):
@@ -180,6 +183,11 @@ async def upload_recipe_image(
     data = await file.read()
     if len(data) > _RECIPE_IMAGE_MAX_SIZE:
         raise HTTPException(status_code=413, detail="Datei zu groß (max. 10 MB)")
+    try:
+        with Image.open(BytesIO(data)) as image:
+            image.verify()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Datei enthält kein gültiges Bild") from exc
     _RECIPE_IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     ext = _RECIPE_IMAGE_EXT_MAP[file.content_type]
     filename = f"recipe_{uuid.uuid4().hex}{ext}"
@@ -198,6 +206,8 @@ def get_shared_recipe(
     if not share:
         raise HTTPException(status_code=404, detail="Share link not found or expired")
 
+    if share.expires_at and share.expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Share link not found or expired")
     if share.password_hash:
         if not password:
             raise HTTPException(status_code=401, detail="Password required for this share link")
@@ -348,6 +358,7 @@ def create_share(
     share = RecipeShare(
         recipe_id=recipe_id,
         password_hash=hash_password(payload.password) if payload.password else None,
+        expires_at=payload.expires_at,
     )
     db.add(share)
     db.commit()

@@ -72,6 +72,7 @@ jobs:
           POSTGRES_USER: kochschmiede
           POSTGRES_PASSWORD: ci-secret
           POSTGRES_DB: kochschmiede
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -80,7 +81,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: "******localhost:5432/kochschmiede"
+      DATABASE_URL: "postgresql://kochschmiede@localhost:5432/kochschmiede"
       SECRET_KEY: ci-test-secret-key-with-at-least-32-chars
       OLLAMA_AUTO_PULL: "false"
     defaults:
@@ -102,7 +103,7 @@ jobs:
 
       - name: Start API server
         run: |
-          mkdir -p /app/uploads
+          mkdir -p uploads
           uvicorn app.main:app --host 127.0.0.1 --port 8000 &
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/api/health > /dev/null 2>&1; then

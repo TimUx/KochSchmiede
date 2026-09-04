@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: kochschmiede
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}
       POSTGRES_DB: kochschmiede
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -21,8 +21,9 @@ services:
       context: ./backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://kochschmiede:${POSTGRES_PASSWORD:-secret}@postgres:5432/kochschmiede
+      DATABASE_URL: postgresql://kochschmiede:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env file}@postgres:5432/kochschmiede
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env file}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
       CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000","http://${DOMAIN:-localhost}","http://${DOMAIN:-localhost}:${PORT:-3000}"]'
       # AI parsing backends – free / local only (see .env.example for setup)
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -43,7 +44,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ready')"]
       interval: 10s
       timeout: 5s
       retries: 5

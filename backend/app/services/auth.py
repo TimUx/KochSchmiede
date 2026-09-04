@@ -1,8 +1,8 @@
 import bcrypt as _bcrypt
+import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -36,7 +36,7 @@ def decode_token(token: str) -> Optional[TokenData]:
         if user_id is None:
             return None
         return TokenData(user_id=user_id)
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 

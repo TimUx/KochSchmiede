@@ -39,9 +39,12 @@ def _validate_url(url: str) -> None:
     import socket
 
     try:
-        addr = ip_address(socket.gethostbyname(hostname))
-        for net in _BLOCKED_NETWORKS:
-            if addr in net:
+        addresses = {
+            ip_address(info[4][0])
+            for info in socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        }
+        for addr in addresses:
+            if any(addr in net for net in _BLOCKED_NETWORKS):
                 raise ValueError(f"Requests to private/internal addresses are not allowed: {addr}")
     except (socket.gaierror, ValueError) as e:
         if "not allowed" in str(e):
@@ -178,7 +181,13 @@ def _fetch_html(url: str, check_ssrf: bool = True) -> str:
             )
             resp = session.get(url, timeout=15)
     resp.raise_for_status()
-    return resp.text
+    content_length = resp.headers.get("Content-Length")
+    if content_length and int(content_length) > 5 * 1024 * 1024:
+        raise ValueError("Response is too large")
+    body = resp.content
+    if len(body) > 5 * 1024 * 1024:
+        raise ValueError("Response is too large")
+    return body.decode(resp.encoding or "utf-8", errors="replace")
 
 
 def _is_recipe_type(atype: object) -> bool:
@@ -350,4 +359,3 @@ def scrape_url_with_text(url: str, check_ssrf: bool = True) -> tuple[ImportResul
     html = _fetch_html(url, check_ssrf)
     soup = BeautifulSoup(html, "lxml")
     return _parse_recipe_from_soup(soup, url), _extract_page_text(soup)
-
