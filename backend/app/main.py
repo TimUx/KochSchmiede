@@ -1,5 +1,6 @@
 import os
 import threading
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -97,7 +98,7 @@ app.include_router(import_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 
 # Serve uploaded logo/icon files
-_UPLOADS_DIR = "/app/uploads"
+_UPLOADS_DIR = str(Path(__file__).resolve().parents[1] / "uploads")
 os.makedirs(_UPLOADS_DIR, exist_ok=True)
 app.mount("/api/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
 
