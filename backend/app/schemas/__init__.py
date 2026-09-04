@@ -1,16 +1,16 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
 
 
 class UserCreate(BaseModel):
-    username: str
+    username: str = Field(min_length=3, max_length=50)
     email: str
-    password: str
+    password: str = Field(min_length=8, max_length=128)
 
 
 class UserOut(BaseModel):
@@ -74,14 +74,14 @@ class UnitOut(BaseModel):
 class IngredientGroupCreate(BaseModel):
     name: str
     position: int = 0
-    ingredients: list[IngredientCreate] = []
+    ingredients: list[IngredientCreate] = Field(default_factory=list)
 
 
 class IngredientGroupOut(BaseModel):
     id: str
     name: str
     position: int = 0
-    ingredients: list[IngredientOut] = []
+    ingredients: list[IngredientOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -111,10 +111,10 @@ class RecipeCreate(BaseModel):
     cook_time: Optional[int] = None
     servings: Optional[int] = 4
     source_url: Optional[str] = None
-    ingredients: list[IngredientCreate] = []
-    ingredient_groups: list[IngredientGroupCreate] = []
-    steps: list[StepCreate] = []
-    tags: list[str] = []
+    ingredients: list[IngredientCreate] = Field(default_factory=list)
+    ingredient_groups: list[IngredientGroupCreate] = Field(default_factory=list)
+    steps: list[StepCreate] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class RecipeUpdate(BaseModel):
@@ -142,10 +142,10 @@ class RecipeOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     owner_username: Optional[str] = None
-    ingredients: list[IngredientOut] = []
-    ingredient_groups: list[IngredientGroupOut] = []
-    steps: list[StepOut] = []
-    tags: list[str] = []
+    ingredients: list[IngredientOut] = Field(default_factory=list)
+    ingredient_groups: list[IngredientGroupOut] = Field(default_factory=list)
+    steps: list[StepOut] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -187,10 +187,10 @@ class ImportResult(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     source_url: Optional[str] = None
-    ingredients: list[str] = []
-    ingredient_groups: list[ImportIngredientGroup] = []
-    steps: list[str] = []
-    tags: list[str] = []
+    ingredients: list[str] = Field(default_factory=list)
+    ingredient_groups: list[ImportIngredientGroup] = Field(default_factory=list)
+    steps: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     prep_time: Optional[int] = None
     cook_time: Optional[int] = None
     servings: Optional[int] = None
@@ -271,7 +271,8 @@ class SiteSettingsUpdate(BaseModel):
 
 
 class RecipeShareCreate(BaseModel):
-    password: Optional[str] = None   # plain text; will be hashed server-side
+    password: Optional[str] = Field(default=None, max_length=128)
+    expires_at: Optional[datetime] = None
 
 
 class RecipeShareOut(BaseModel):

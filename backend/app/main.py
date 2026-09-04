@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from fastapi import HTTPException
 
 from app.api import admin_router, auth_router, import_router, recipe_router
 from app.config import settings
@@ -77,9 +78,9 @@ app = FastAPI(
     title="KochSchmiede API",
     description="Self-hosted recipe management platform API",
     version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url="/api/docs" if settings.ENABLE_API_DOCS else None,
+    redoc_url="/api/redoc" if settings.ENABLE_API_DOCS else None,
+    openapi_url="/api/openapi.json" if settings.ENABLE_API_DOCS else None,
 )
 
 app.add_middleware(
@@ -104,6 +105,17 @@ app.mount("/api/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "KochSchmiede API"}
+
+
+@app.get("/api/ready")
+def ready():
+    """Readiness check including database connectivity."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    return {"status": "ready", "service": "KochSchmiede API"}
 
 
 # ── Background: Ollama model auto-pull ───────────────────────────────────────

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://frontend:3000"]
+    ENABLE_API_DOCS: bool = False
 
     # ── Local / free LLM (text + vision) ─────────────────────────────────────
     # Uses the OpenAI Chat Completions protocol, which is supported by all
