@@ -10,7 +10,7 @@ python-multipart==0.0.32
 requests==2.34.2
 beautifulsoup4==4.15.0
 Pillow==12.3.0
-pillow-heif==1.6.0
+pillow-heif==1.7.0
 PyMuPDF==1.28.2
 pytesseract==0.3.13
 alembic==1.19.1
