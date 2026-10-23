@@ -7,6 +7,7 @@ import RecipeCard from "@/components/RecipeCard";
 import HelpButton from "@/components/HelpButton";
 import { Search, SlidersHorizontal, Loader2, ChefHat, LayoutGrid, List } from "lucide-react";
 import Link from "next/link";
+import { clearAuthSession } from "@/lib/auth";
 
 const RECIPES_HELP = {
   title: "Alle Rezepte",
@@ -82,6 +83,7 @@ function RecipesContent() {
 
         const res = await fetch(`${API}/api/recipes/`, { headers });
         if (res.status === 401) {
+          clearAuthSession();
           router.replace("/login");
           return;
         }
