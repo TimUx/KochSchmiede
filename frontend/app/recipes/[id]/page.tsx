@@ -8,6 +8,7 @@ import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { clearAuthSession } from "@/lib/auth";
 import {
   ArrowLeft,
   Clock,
@@ -122,6 +123,7 @@ export default function RecipeView({ params }: { params: Promise<{ id: string }>
         if (token) headers["Authorization"] = `Bearer ${token}`;
         const res = await fetch(`${API}/api/recipes/${id}`, { headers });
         if (res.status === 401) {
+          clearAuthSession();
           router.replace("/login");
           return;
         }
