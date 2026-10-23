@@ -8,6 +8,7 @@ import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PlusCircle, TrendingUp, Search, Loader2, LayoutGrid, List } from "lucide-react";
+import { clearAuthSession } from "@/lib/auth";
 
 const DASHBOARD_HELP = {
   title: "Dashboard – Übersicht",
@@ -84,6 +85,7 @@ export default function Dashboard() {
         if (token) headers["Authorization"] = `Bearer ${token}`;
         const res = await fetch(`${API}/api/recipes/`, { headers });
         if (res.status === 401) {
+          clearAuthSession();
           router.replace("/login");
           return;
         }
