@@ -17,6 +17,7 @@ import base64
 import io
 import json
 import logging
+from contextvars import ContextVar
 from typing import Optional
 
 from app.schemas import ImportResult
@@ -25,6 +26,53 @@ from app.services.ai_parser import _AI_TEXT_LIMIT, _SYSTEM_PROMPT, _build_import
 logger = logging.getLogger(__name__)
 
 _EXTERNAL_AI_TIMEOUT = 120  # seconds
+
+# ── Failure reasons ───────────────────────────────────────────────────────────
+# The parse functions return None on failure so callers can fall back to the
+# local AI.  The reason of the most recent failure in the current request is
+# kept here so the import warning can tell the user what actually went wrong.
+
+_last_failure: ContextVar[Optional[str]] = ContextVar("external_ai_last_failure", default=None)
+
+
+def last_failure_reason() -> Optional[str]:
+    """Return a user-facing (German) reason for the last external AI failure."""
+    return _last_failure.get()
+
+
+def describe_failure(exc: BaseException) -> str:
+    """Map an OpenAI / Gemini SDK exception to a short German explanation."""
+    name = type(exc).__name__
+    code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if not isinstance(code, int):
+        code = None
+    # OpenAI puts the error code (e.g. "insufficient_quota") in the body.
+    text = f"{exc} {getattr(exc, 'body', '')}".lower()
+
+    if isinstance(exc, json.JSONDecodeError):
+        return "die Antwort der KI war kein gültiges Rezept-JSON"
+    if "timeout" in name.lower() or isinstance(exc, TimeoutError):
+        return "Zeitüberschreitung bei der Anfrage an den Anbieter"
+    if "connection" in name.lower() or isinstance(exc, ConnectionError):
+        return "der Anbieter ist nicht erreichbar (Netzwerkfehler)"
+    if code == 402 or "prepayment credits" in text or "insufficient_quota" in text:
+        return "das Guthaben bzw. Kontingent beim Anbieter ist aufgebraucht – bitte Abrechnung prüfen"
+    if code in (401, 403) or "api key not valid" in text or "api_key_invalid" in text or "incorrect api key" in text:
+        return "der API-Key ist ungültig oder hat keine Berechtigung"
+    if code == 404 or ("not found" in text and "model" in text):
+        return "der Modellname ist unbekannt oder für diesen API-Key nicht verfügbar"
+    if code == 429:
+        return "zu viele Anfragen bzw. Rate-Limit erreicht – bitte später erneut versuchen"
+    if code is not None and code >= 500:
+        return f"der Anbieter hat einen Serverfehler gemeldet (HTTP {code}) – bitte später erneut versuchen"
+    if code is not None:
+        return f"der Anbieter hat die Anfrage abgelehnt (HTTP {code})"
+    return f"unerwarteter Fehler ({name})"
+
+
+def _record_failure(context: str, exc: BaseException) -> None:
+    logger.warning("%s failed: %s", context, exc)
+    _last_failure.set(describe_failure(exc))
 
 # ── OpenAI structured-output schema ───────────────────────────────────────────
 # Used with response_format={"type": "json_schema", ...} to enforce the exact
@@ -125,7 +173,7 @@ def _call_openai_text(
         parsed: dict = _safe_json_loads(response.output_text)
         return _build_import_result(parsed)
     except Exception as exc:
-        logger.warning("OpenAI API call (text) failed: %s", exc)
+        _record_failure("OpenAI API call (text)", exc)
         return None
 
 
@@ -177,7 +225,7 @@ def _call_openai_image(
         parsed: dict = _safe_json_loads(response.output_text)
         return _build_import_result(parsed)
     except Exception as exc:
-        logger.warning("OpenAI API call (vision) failed: %s", exc)
+        _record_failure("OpenAI API call (vision)", exc)
         return None
 
 
@@ -224,7 +272,7 @@ def _call_gemini(
         parsed: dict = _safe_json_loads(response.text)
         return _build_import_result(parsed)
     except Exception as exc:
-        logger.warning("Gemini API call failed: %s", exc)
+        _record_failure("Gemini API call", exc)
         return None
 
 
@@ -247,6 +295,7 @@ def parse_with_external_ai(
     before sending it to the model.  Increase this for sources that benefit
     from more context (e.g. full web-page text).
     """
+    _last_failure.set(None)
     if not text.strip() or not api_key or not model:
         return None
 
@@ -276,6 +325,7 @@ def parse_image_with_external_ai(
     Supports vision-capable models from OpenAI and Google Gemini.
     Returns ``None`` when credentials are missing or the API call fails.
     """
+    _last_failure.set(None)
     if not image_bytes or not api_key or not model:
         return None
 
