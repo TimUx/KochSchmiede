@@ -19,7 +19,7 @@ except ImportError:
     OCR_AVAILABLE = False
 
 try:
-    import fitz  # PyMuPDF
+    import pymupdf
 
     PDF_AVAILABLE = True
 except ImportError:
@@ -781,7 +781,7 @@ def _parse_ocr_text(text: str) -> ImportResult:
     )
 
 
-def _extract_best_pdf_image(doc: "fitz.Document") -> Optional[bytes]:  # type: ignore[name-defined]
+def _extract_best_pdf_image(doc: "pymupdf.Document") -> Optional[bytes]:  # type: ignore[name-defined]
     """Return raw bytes of the largest embedded image in the PDF document.
 
     Tiny images (icons, decorations) are skipped.  Returns ``None`` when no
@@ -896,7 +896,7 @@ def extract_pdf_text_and_image(
     if not PDF_AVAILABLE:
         return _extract_text_via_pdf2image(pdf_bytes, handwriting), None
 
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     full_text = ""
     # Threshold: a text block is considered "full-width" (e.g. the recipe title
     # or a divider line) when it spans more than this fraction of the page width.
@@ -1015,7 +1015,7 @@ def render_pdf_first_page(pdf_bytes: bytes, dpi: int = 150) -> Optional[bytes]:
     if not PDF_AVAILABLE:
         return None
     try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
         if not doc.page_count:
             return None
         pix = doc[0].get_pixmap(dpi=dpi)
