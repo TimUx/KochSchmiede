@@ -41,6 +41,7 @@ from app.services.ai_parser import (
     parse_with_ai,
 )
 from app.services.external_ai_parser import (
+    last_failure_reason as last_ext_ai_failure_reason,
     parse_image_with_external_ai,
     parse_with_external_ai,
 )
@@ -93,9 +94,11 @@ def _ext_ai_warning(ext_ai: _ExtAIConfig, context: str) -> str:
 
     *context* is either ``"Bild"`` or ``"Dokument"``.
     """
+    reason = last_ext_ai_failure_reason()
+    detail = f": {reason}." if reason else " (z. B. falscher Modellname oder ungültiger API-Key)."
     return (
-        f"Die externe KI ({ext_ai.provider} / {ext_ai.model}) konnte das {context} nicht verarbeiten "
-        f"(z. B. falscher Modellname oder ungültiger API-Key). "
+        f"Die externe KI ({ext_ai.provider} / {ext_ai.model}) konnte das {context} nicht verarbeiten"
+        f"{detail} "
         f"Das Ergebnis stammt vom lokalen Fallback und ist möglicherweise unvollständig."
     )
 
