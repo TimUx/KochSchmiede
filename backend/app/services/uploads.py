@@ -36,14 +36,18 @@ def _hint(path: Path) -> str:
 
 def write_upload(directory: Path, filename: str, data: bytes) -> Path:
     """Write *data* to ``directory/filename``; raise HTTP 500 with a clear message on permission errors."""
-    dest = directory / filename
+    base = os.path.realpath(directory)
+    dest = os.path.realpath(os.path.join(base, filename))
+    if not dest.startswith(base + os.sep):
+        raise HTTPException(status_code=400, detail="Ungültiger Dateiname")
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(data)
+        os.makedirs(base, exist_ok=True)
+        with open(dest, "wb") as fh:
+            fh.write(data)
     except PermissionError:
         logger.error(_hint(directory))
         raise HTTPException(status_code=500, detail=NOT_WRITABLE_DETAIL)
-    return dest
+    return Path(dest)
 
 
 def check_uploads_writable(root: Path = UPLOADS_ROOT) -> bool:
