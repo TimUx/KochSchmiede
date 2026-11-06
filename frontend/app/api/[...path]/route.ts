@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Agent } from "undici";
+import { Agent, fetch, type RequestInit } from "undici";
 
 // Node.js built-in fetch is powered by undici, which enforces its own
 // bodyTimeout / headersTimeout independently of the AbortController.
@@ -7,6 +7,10 @@ import { Agent } from "undici";
 // (e.g. AI inference on CPU-only hardware) silently fail with "fetch failed"
 // and produce a spurious 502 before our 10-minute AbortController fires.
 // Using a custom Agent with higher timeouts prevents that.
+//
+// `fetch` is imported from the undici package (not the Node.js global) so it
+// matches the Agent's version. Node's built-in fetch bundles its own undici,
+// whose handler API is incompatible with an Agent from a newer undici major.
 const PROXY_TIMEOUT_MS = 660_000; // 11 min – must exceed AbortController timeout (10 min)
 const backendAgent = new Agent({
   bodyTimeout: PROXY_TIMEOUT_MS,
@@ -79,15 +83,13 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
     const timeoutMs = 600_000; // 10 minutes
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    let backendRes: Response;
+    let backendRes: Awaited<ReturnType<typeof fetch>>;
     try {
-      // `dispatcher` is a Node.js/undici extension to the WhatWG RequestInit
-      // type.  The cast makes the intent explicit while avoiding a bare `any`.
       backendRes = await fetch(url, {
         ...init,
         signal: controller.signal,
         dispatcher: backendAgent,
-      } as RequestInit & { dispatcher: Agent });
+      });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -100,7 +102,9 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
       }
     });
 
-    return new NextResponse(backendRes.body, {
+    // undici types its body as node:stream/web ReadableStream, which is the
+    // same class as the global one at runtime but not to TypeScript.
+    return new NextResponse(backendRes.body as unknown as BodyInit | null, {
       status: backendRes.status,
       statusText: backendRes.statusText,
       headers: responseHeaders,
