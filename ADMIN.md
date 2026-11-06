@@ -11,7 +11,7 @@
 1. [Voraussetzungen](#1-voraussetzungen)
 2. [Installation mit Docker Compose](#2-installation-mit-docker-compose)
 3. [Umgebungsvariablen & Konfiguration](#3-umgebungsvariablen--konfiguration)
-4. [KI-gestützte Rezepterkennung (Ollama / LM Studio / OpenAI / Gemini)](#4-ki-gestützte-rezepterkennung)
+4. [KI-gestützte Rezepterkennung (Ollama / LM Studio / OpenAI / Gemini / Claude)](#4-ki-gestützte-rezepterkennung)
 5. [Erster Start & First-Run-Setup](#5-erster-start--first-run-setup)
 6. [Admin-Interface im Browser](#6-admin-interface-im-browser)
    - [Einstellungen (Site-Konfiguration)](#61-einstellungen)
@@ -270,7 +270,7 @@ LLM_MODEL=dein-geladenes-modell    # Muss exakt dem Namen in LM Studio entsprech
 
 > **Hinweis**: Bei LM Studio ist immer nur ein Modell gleichzeitig geladen. `LLM_MODEL` muss daher immer explizit gesetzt werden.
 
-### 4.3 Option C: Externe KI (OpenAI / Google Gemini)
+### 4.3 Option C: Externe KI (OpenAI / Google Gemini / Anthropic Claude)
 
 Externe KI-Anbieter werden **im Admin-Interface** konfiguriert (nicht in `.env`). Siehe [Abschnitt 6.1](#61-einstellungen).
 
@@ -282,6 +282,7 @@ Externe KI-Anbieter werden **im Admin-Interface** konfiguriert (nicht in `.env`)
 **Kosten (ungefähre Richtwerte):**
 - OpenAI gpt-4o-mini: ~$0.001–0.003 pro Rezept
 - Google Gemini Flash: ~$0.0001–0.001 pro Rezept
+- Anthropic Claude Opus 5.5: höhere Kosten pro Rezept, sehr gute Erkennung auch bei Handschrift
 
 ---
 
@@ -375,32 +376,27 @@ Hier kannst du das Erscheinungsbild der Anwendung anpassen:
 
 **Logos zurücksetzen**: Klicke auf das Mülleimer-Symbol neben dem jeweiligen Bild, um das Standard-Logo wiederherzustellen.
 
-#### Externe KI-Konfiguration (OpenAI / Gemini)
+#### Externe KI-Konfiguration (OpenAI / Gemini / Claude)
 
 Hier konfigurierst du optionale externe KI-Dienste für die Rezepterkennung.
 
-**Schritt-für-Schritt (OpenAI):**
-1. Wähle **„OpenAI"** als Anbieter
-2. Wähle ein Modell (empfohlen: **gpt-4o-mini** für gutes Preis-Leistungs-Verhältnis)
-3. Gib deinen **OpenAI API-Key** ein (von [platform.openai.com](https://platform.openai.com/api-keys))
+**Schritt-für-Schritt:**
+1. Wähle den **Anbieter**: „OpenAI (ChatGPT)", „Google Gemini" oder „Anthropic (Claude)"
+2. Gib den **API-Key** ein – von [platform.openai.com](https://platform.openai.com/api-keys), [aistudio.google.com](https://aistudio.google.com/app/apikey) bzw. [platform.claude.com](https://platform.claude.com/settings/keys)
+3. Lass das Modell auf **„Automatisch (empfohlen)"** stehen
 4. Klicke auf **„Speichern"**
 
-**Schritt-für-Schritt (Google Gemini):**
-1. Wähle **„Google Gemini"** als Anbieter
-2. Wähle ein Modell (empfohlen: **gemini-2.0-flash** – kostenlos im Free Tier)
-3. Gib deinen **Gemini API-Key** ein (von [aistudio.google.com](https://aistudio.google.com))
-4. Klicke auf **„Speichern"**
+**Automatische Modellwahl:** Bei „Automatisch" fragt KochSchmiede mit deinem API-Key die verfügbaren Modelle beim Anbieter ab und wählt das empfohlene aus. Die Auswahl wird alle 12 Stunden neu geprüft, neue Modelle werden also ohne Zutun übernommen. Ist die Modell-Liste nicht abrufbar, wird ein fester Standard verwendet. Das aktuell gewählte Modell steht direkt im Auswahlfeld.
 
-**Modellübersicht:**
+| Anbieter | Automatische Wahl | Standard ohne Modell-Liste |
+|---------|-------------------|----------------------------|
+| OpenAI | neuestes GPT-Modell (keine Mini-/Nano-Varianten) | gpt-4o |
+| Gemini | neuestes stabiles Gemini-Flash-Modell | gemini-2.5-flash |
+| Claude | Claude Opus 5.5 | claude-opus-5-5 |
 
-| Anbieter | Modell | Eigenschaften |
-|---------|--------|---------------|
-| OpenAI | gpt-4o | Höchste Qualität, höhere Kosten |
-| OpenAI | gpt-4o-mini | Gute Qualität, günstiger |
-| OpenAI | gpt-3.5-turbo | Schnell, günstig, einfache Rezepte |
-| Gemini | gemini-2.5-flash | Sehr schnell, kostenlos im Free Tier |
-| Gemini | gemini-2.5-pro | Höchste Qualität bei Gemini |
-| Gemini | gemini-2.0-flash | Schnell, kostenlos |
+Wer ein bestimmtes Modell nutzen möchte, kann es im Auswahlfeld fest einstellen. Es wird dann nicht mehr automatisch aktualisiert.
+
+> **Wichtig**: Alle drei Anbieter rechnen nach Verbrauch ab. Ist kein Guthaben bzw. keine Abrechnung eingerichtet, schlägt der Import mit einem entsprechenden Hinweis fehl und fällt auf die lokale Erkennung zurück.
 
 > **Hinweis**: Der API-Key wird sicher in der Datenbank gespeichert und nie in der Oberfläche angezeigt. Nach dem Speichern wird nur ein ✅-Symbol angezeigt.
 

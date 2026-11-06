@@ -11,7 +11,7 @@ import AiHelpModal from "@/app/admin/components/AiHelpModal";
 import { InlineAlert, SectionCard } from "@/app/admin/components/AdminUi";
 import { ADMIN_HELP, AI_HELP, PROVIDER_MODELS } from "@/app/admin/constants";
 import { apiFetch, ApiError, uploadAdminAsset } from "@/app/admin/api";
-import type { SiteSettings, UnitRecord, UserRecord } from "@/app/admin/types";
+import type { ExtAiModels, SiteSettings, UnitRecord, UserRecord } from "@/app/admin/types";
 import {
   Shield,
   Users,
@@ -90,6 +90,30 @@ export default function AdminPage() {
   const [extAiError, setExtAiError] = useState<string | null>(null);
   const [extAiSuccess, setExtAiSuccess] = useState(false);
   const [showAiHelp, setShowAiHelp] = useState<string | null>(null);
+  // Models offered by the provider for the entered/stored key ("" model = automatic)
+  const [extAiModels, setExtAiModels] = useState<ExtAiModels | null>(null);
+  const [loadingExtAiModels, setLoadingExtAiModels] = useState(false);
+  const extAiModelsRequest = useRef(0);
+
+  const loadExtAiModels = useCallback(async (provider: string, apiKey?: string) => {
+    const requestId = ++extAiModelsRequest.current;
+    setExtAiModels(null);
+    if (!provider) return;
+    setLoadingExtAiModels(true);
+    try {
+      const body: Record<string, string> = { provider };
+      if (apiKey) body.api_key = apiKey;
+      const result: ExtAiModels = await apiFetch("/api/admin/ext-ai/models", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      if (requestId === extAiModelsRequest.current) setExtAiModels(result);
+    } catch {
+      // Not critical: the static model list is shown instead.
+    } finally {
+      if (requestId === extAiModelsRequest.current) setLoadingExtAiModels(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     if (!localStorage.getItem("ks_token")) {
@@ -108,6 +132,7 @@ export default function AdminPage() {
       setExtAiProvider(s.ext_ai_provider ?? "");
       setExtAiModel(s.ext_ai_model ?? "");
       setExtAiKey(""); // never pre-fill the key field
+      if (s.ext_ai_provider && s.ext_ai_key_configured) loadExtAiModels(s.ext_ai_provider);
       setUsers(u);
       setUnits(un);
     } catch (e: unknown) {
@@ -122,7 +147,7 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, loadExtAiModels]);
 
   useEffect(() => {
     load();
@@ -147,8 +172,8 @@ export default function AdminPage() {
   async function saveExtAi() {
     setExtAiError(null);
     setExtAiSuccess(false);
-    if (!extAiProvider || !extAiModel) {
-      setExtAiError("Bitte Anbieter und Modell angeben.");
+    if (!extAiProvider) {
+      setExtAiError("Bitte einen Anbieter wählen.");
       return;
     }
     if (!extAiKey && !settings?.ext_ai_key_configured) {
@@ -169,6 +194,7 @@ export default function AdminPage() {
       setSettings(updated);
       setExtAiKey("");
       setExtAiSuccess(true);
+      loadExtAiModels(extAiProvider);
     } catch (e: unknown) {
       setExtAiError(e instanceof Error ? e.message : "Fehler beim Speichern");
     } finally {
@@ -190,6 +216,7 @@ export default function AdminPage() {
       setExtAiProvider("");
       setExtAiModel("");
       setExtAiKey("");
+      setExtAiModels(null);
     } catch (e: unknown) {
       setExtAiError(e instanceof Error ? e.message : "Fehler beim Entfernen");
     } finally {
@@ -318,6 +345,12 @@ export default function AdminPage() {
       setLogoError(e instanceof Error ? e.message : "Fehler beim Zurücksetzen");
     }
   }
+
+  // Models offered for manual selection: the provider's live list when it
+  // could be loaded, otherwise the built-in list.
+  const modelOptions = extAiModels?.models.length
+    ? extAiModels.models.map((m) => ({ value: m.id, label: m.label === m.id ? m.id : `${m.label} (${m.id})` }))
+    : PROVIDER_MODELS[extAiProvider] ?? [];
 
   return (
     <AppShell>
@@ -573,7 +606,7 @@ export default function AdminPage() {
                 <SectionCard
                   title="Externe KI (Import)"
                   icon={Bot}
-                  description="Optionaler API-Dienst für den Import (z. B. ChatGPT, Google Gemini). Besonders hilfreich für handgeschriebene Rezepte."
+                  description="Optionaler API-Dienst für den Import (ChatGPT, Google Gemini oder Claude). Besonders hilfreich für handgeschriebene Rezepte."
                 >
 
                   <div className="p-4 space-y-3">
@@ -600,13 +633,13 @@ export default function AdminPage() {
                             const p = e.target.value;
                             setExtAiProvider(p);
                             setExtAiSuccess(false);
-                            if (p && PROVIDER_MODELS[p]) {
-                              const models = PROVIDER_MODELS[p];
-                              if (!models.find((m) => m.value === extAiModel)) {
-                                setExtAiModel(models[0].value);
-                              }
+                            setExtAiModel(""); // automatic
+                            const storedKeyFits =
+                              settings?.ext_ai_key_configured && settings.ext_ai_provider === p;
+                            if (p && (extAiKey || storedKeyFits)) {
+                              loadExtAiModels(p, extAiKey || undefined);
                             } else {
-                              setExtAiModel("");
+                              loadExtAiModels("");
                             }
                           }}
                           className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -614,6 +647,7 @@ export default function AdminPage() {
                           <option value="">– Anbieter wählen –</option>
                           <option value="openai">OpenAI (ChatGPT)</option>
                           <option value="gemini">Google Gemini</option>
+                          <option value="anthropic">Anthropic (Claude)</option>
                         </select>
                         {extAiProvider && AI_HELP[extAiProvider] && (
                           <button
@@ -642,14 +676,30 @@ export default function AdminPage() {
                         {!extAiProvider && (
                           <option value="">– zuerst Anbieter wählen –</option>
                         )}
-                        {extAiProvider && PROVIDER_MODELS[extAiProvider]?.map((m) => (
+                        {extAiProvider && (
+                          <option value="">
+                            Automatisch (empfohlen){extAiModels?.auto_model ? ` – ${extAiModels.auto_model}` : ""}
+                          </option>
+                        )}
+                        {extAiProvider && modelOptions.map((m) => (
                           <option key={m.value} value={m.value}>{m.label}</option>
                         ))}
                         {extAiProvider && extAiModel &&
-                          !PROVIDER_MODELS[extAiProvider]?.find((m) => m.value === extAiModel) && (
+                          !modelOptions.find((m) => m.value === extAiModel) && (
                           <option key={extAiModel} value={extAiModel}>{extAiModel} (gespeichert)</option>
                         )}
                       </select>
+                      {extAiProvider && (
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          {loadingExtAiModels
+                            ? "Verfügbare Modelle werden geladen…"
+                            : extAiModels?.error
+                              ? extAiModels.error
+                              : extAiModel
+                                ? "Fest eingestelltes Modell – wird nicht automatisch aktualisiert."
+                                : "Das empfohlene Modell wird automatisch gewählt und bei neuen Modellen aktualisiert."}
+                        </p>
+                      )}
                     </div>
 
                     {/* API Key */}
@@ -665,7 +715,8 @@ export default function AdminPage() {
                           type={showExtAiKey ? "text" : "password"}
                           value={extAiKey}
                           onChange={(e) => { setExtAiKey(e.target.value); setExtAiSuccess(false); }}
-                          placeholder={settings?.ext_ai_key_configured ? "Leer lassen, um gespeicherten Schlüssel zu behalten" : "sk-… oder AIza…"}
+                          onBlur={() => { if (extAiProvider && extAiKey) loadExtAiModels(extAiProvider, extAiKey); }}
+                          placeholder={settings?.ext_ai_key_configured ? "Leer lassen, um gespeicherten Schlüssel zu behalten" : "sk-…, AIza… oder sk-ant-…"}
                           className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                         />
                         <button

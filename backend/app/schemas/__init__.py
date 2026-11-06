@@ -262,9 +262,28 @@ class SiteSettingsUpdate(BaseModel):
     ssrf_protection: Optional[bool] = None
     # External AI configuration – set all three to configure; send
     # ext_ai_provider="" to clear the external AI configuration entirely.
-    ext_ai_provider: Optional[str] = None
+    ext_ai_provider: Optional[Literal["", "openai", "gemini", "anthropic"]] = None
     ext_ai_api_key: Optional[str] = None
+    # Empty model = choose the recommended model automatically.
     ext_ai_model: Optional[str] = None
+
+
+class ExtAiModelsRequest(BaseModel):
+    provider: Literal["openai", "gemini", "anthropic"]
+    # Optional: test a key before saving it; otherwise the stored key is used.
+    api_key: Optional[str] = None
+
+
+class ExtAiModelOption(BaseModel):
+    id: str
+    label: str
+
+
+class ExtAiModelsOut(BaseModel):
+    auto_model: str
+    models: list[ExtAiModelOption]
+    # Set when the model list could not be loaded (e.g. invalid key).
+    error: Optional[str] = None
 
 
 # ─── Recipe Share ─────────────────────────────────────────────────────────────

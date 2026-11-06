@@ -169,7 +169,7 @@ def public_settings(db=None):
             "logo_dark_url": s.logo_dark_url,
             "favicon_url": s.favicon_url,
             "appicon_url": s.appicon_url,
-            "ext_ai_configured": bool(s.ext_ai_provider and s.ext_ai_api_key and s.ext_ai_model),
+            "ext_ai_configured": bool(s.ext_ai_provider and s.ext_ai_api_key),
         }
     finally:
         db.close()

@@ -1,4 +1,4 @@
-"""External AI parser – optional paid API backends (OpenAI, Google Gemini).
+"""External AI parser – optional paid API backends (OpenAI, Google Gemini, Anthropic Claude).
 
 These backends are used when configured in the admin settings and the upload
 complexity warrants them.  Unlike the local LLM backend, these require an API
@@ -9,7 +9,11 @@ Supported providers
 * ``openai``  – OpenAI Responses API (gpt-4.1, gpt-4o, gpt-4o-mini, …)
                Uses ``json_schema`` structured output for reliable extraction.
 * ``gemini``  – Google Gemini via the official ``google-genai`` SDK
-                (gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, …)
+                (gemini-2.5-flash, gemini-2.5-pro, …)
+* ``anthropic`` – Anthropic Claude, see :mod:`app.services.anthropic_parser`
+
+The model may be left empty in the settings; it is then chosen automatically
+(see :mod:`app.services.ext_ai_models`).
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from contextvars import ContextVar
 from typing import Optional
 
 from app.schemas import ImportResult
+from app.services import anthropic_parser
 from app.services.ai_parser import _AI_TEXT_LIMIT, _SYSTEM_PROMPT, _build_import_result
 
 logger = logging.getLogger(__name__)
@@ -41,7 +46,7 @@ def last_failure_reason() -> Optional[str]:
 
 
 def describe_failure(exc: BaseException) -> str:
-    """Map an OpenAI / Gemini SDK exception to a short German explanation."""
+    """Map an OpenAI / Gemini / Anthropic SDK exception to a short German explanation."""
     name = type(exc).__name__
     code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     if not isinstance(code, int):
@@ -49,13 +54,20 @@ def describe_failure(exc: BaseException) -> str:
     # OpenAI puts the error code (e.g. "insufficient_quota") in the body.
     text = f"{exc} {getattr(exc, 'body', '')}".lower()
 
+    if isinstance(exc, anthropic_parser.RefusalError):
+        return "die KI hat die Anfrage aus Sicherheitsgründen abgelehnt"
     if isinstance(exc, json.JSONDecodeError):
         return "die Antwort der KI war kein gültiges Rezept-JSON"
     if "timeout" in name.lower() or isinstance(exc, TimeoutError):
         return "Zeitüberschreitung bei der Anfrage an den Anbieter"
     if "connection" in name.lower() or isinstance(exc, ConnectionError):
         return "der Anbieter ist nicht erreichbar (Netzwerkfehler)"
-    if code == 402 or "prepayment credits" in text or "insufficient_quota" in text:
+    if (
+        code == 402
+        or "prepayment credits" in text
+        or "insufficient_quota" in text
+        or "credit balance is too low" in text
+    ):
         return "das Guthaben bzw. Kontingent beim Anbieter ist aufgebraucht – bitte Abrechnung prüfen"
     if code in (401, 403) or "api key not valid" in text or "api_key_invalid" in text or "incorrect api key" in text:
         return "der API-Key ist ungültig oder hat keine Berechtigung"
@@ -63,6 +75,8 @@ def describe_failure(exc: BaseException) -> str:
         return "der Modellname ist unbekannt oder für diesen API-Key nicht verfügbar"
     if code == 429:
         return "zu viele Anfragen bzw. Rate-Limit erreicht – bitte später erneut versuchen"
+    if code == 529 or "overloaded" in text:
+        return "der Anbieter ist gerade überlastet – bitte später erneut versuchen"
     if code is not None and code >= 500:
         return f"der Anbieter hat einen Serverfehler gemeldet (HTTP {code}) – bitte später erneut versuchen"
     if code is not None:
@@ -75,7 +89,7 @@ def _record_failure(context: str, exc: BaseException) -> None:
     _last_failure.set(describe_failure(exc))
 
 # ── OpenAI structured-output schema ───────────────────────────────────────────
-# Used with response_format={"type": "json_schema", ...} to enforce the exact
+# Used as the structured-output format (see _OPENAI_TEXT_FORMAT) to enforce the exact
 # fields expected by _build_import_result.  Matches the schema described in
 # _SYSTEM_PROMPT (English field names).
 
@@ -141,6 +155,19 @@ def _safe_json_loads(text: str) -> dict:
     return json.loads(stripped.strip())
 
 
+# The Responses API takes structured output via ``text.format``.  No
+# ``temperature``: newer OpenAI reasoning models reject it.
+_OPENAI_TEXT_FORMAT: dict = {
+    "format": {
+        "type": "json_schema",
+        "name": _OPENAI_RECIPE_SCHEMA["name"],
+        "schema": _OPENAI_RECIPE_SCHEMA["schema"],
+        # The schema has optional fields, which strict mode does not allow.
+        "strict": False,
+    }
+}
+
+
 # ── OpenAI ────────────────────────────────────────────────────────────────────
 
 
@@ -163,12 +190,8 @@ def _call_openai_text(
             model=model,
             instructions=_SYSTEM_PROMPT,
             input=f"Parse this recipe:\n\n{text[:text_limit]}",
-            response_format={
-                "type": "json_schema",
-                "json_schema": _OPENAI_RECIPE_SCHEMA,
-            },
-            temperature=0.1,
-            max_output_tokens=2048,
+            text=_OPENAI_TEXT_FORMAT,
+            max_output_tokens=8192,
         )
         parsed: dict = _safe_json_loads(response.output_text)
         return _build_import_result(parsed)
@@ -215,12 +238,8 @@ def _call_openai_image(
                     ],
                 }
             ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": _OPENAI_RECIPE_SCHEMA,
-            },
-            temperature=0.1,
-            max_output_tokens=2048,
+            text=_OPENAI_TEXT_FORMAT,
+            max_output_tokens=8192,
         )
         parsed: dict = _safe_json_loads(response.output_text)
         return _build_import_result(parsed)
@@ -276,6 +295,32 @@ def _call_gemini(
         return None
 
 
+# ── Anthropic Claude ──────────────────────────────────────────────────────────
+
+
+def _call_anthropic(
+    prompt: str,
+    api_key: str,
+    model: str,
+    image_bytes: Optional[bytes] = None,
+    mime_type: str = "image/jpeg",
+) -> Optional[ImportResult]:
+    try:
+        parsed = anthropic_parser.call_claude(
+            prompt,
+            api_key,
+            model,
+            system_prompt=_SYSTEM_PROMPT,
+            schema=_OPENAI_RECIPE_SCHEMA["schema"],
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+        )
+        return _build_import_result(parsed)
+    except Exception as exc:
+        _record_failure("Claude API call", exc)
+        return None
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
@@ -288,7 +333,7 @@ def parse_with_external_ai(
 ) -> Optional[ImportResult]:
     """Parse recipe text using an external AI provider.
 
-    Supports ``openai`` and ``gemini`` providers.  Returns ``None`` when the
+    Supports ``openai``, ``gemini`` and ``anthropic``.  Returns ``None`` when the
     provider is unknown, credentials are missing, or the API call fails.
 
     *text_limit* overrides the default character limit applied to *text*
@@ -309,6 +354,9 @@ def parse_with_external_ai(
             model,
         )
 
+    if provider == "anthropic":
+        return _call_anthropic(f"Parse this recipe:\n\n{text[:text_limit]}", api_key, model)
+
     logger.warning("Unknown external AI provider: %s", provider)
     return None
 
@@ -322,7 +370,7 @@ def parse_image_with_external_ai(
 ) -> Optional[ImportResult]:
     """Parse a recipe image using an external AI provider.
 
-    Supports vision-capable models from OpenAI and Google Gemini.
+    Supports vision-capable models from OpenAI, Google Gemini and Anthropic.
     Returns ``None`` when credentials are missing or the API call fails.
     """
     _last_failure.set(None)
@@ -338,6 +386,15 @@ def parse_image_with_external_ai(
             api_key,
             model,
             image_bytes=image_bytes,
+        )
+
+    if provider == "anthropic":
+        return _call_anthropic(
+            "Analysiere dieses Rezeptbild und extrahiere alle Rezeptdaten als JSON.",
+            api_key,
+            model,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
         )
 
     logger.warning("Unknown external AI provider: %s", provider)

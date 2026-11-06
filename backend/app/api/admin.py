@@ -8,8 +8,20 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_admin_user, get_current_user
 from app.database import get_db
 from app.models import User, Unit
-from app.schemas import SiteSettingsOut, SiteSettingsUpdate, UnitCreate, UnitOut, UnitUpdate, UserCreate, UserOut
+from app.schemas import (
+    ExtAiModelsOut,
+    ExtAiModelsRequest,
+    SiteSettingsOut,
+    SiteSettingsUpdate,
+    UnitCreate,
+    UnitOut,
+    UnitUpdate,
+    UserCreate,
+    UserOut,
+)
+from app.services import ext_ai_models
 from app.services.auth import create_user, get_user_by_username, hash_password
+from app.services.external_ai_parser import describe_failure
 from app.services.settings import get_settings, update_settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -76,7 +88,40 @@ def write_settings(
         if payload.ext_ai_api_key:
             kwargs["ext_ai_api_key"] = payload.ext_ai_api_key
 
+    if any(k.startswith("ext_ai_") for k in kwargs):
+        # Provider or key changed: re-run automatic model selection.
+        ext_ai_models.clear_cache()
     return update_settings(db, _force_null_keys=force_null, **kwargs)
+
+
+@router.post("/ext-ai/models", response_model=ExtAiModelsOut)
+def list_ext_ai_models(
+    payload: ExtAiModelsRequest,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    """List the models available for a provider and the automatic choice.
+
+    Uses the API key from the request, or the stored key when the stored
+    provider matches.
+    """
+    api_key = payload.api_key
+    if not api_key:
+        s = get_settings(db)
+        if s.ext_ai_provider == payload.provider:
+            api_key = s.ext_ai_api_key
+    default = ext_ai_models.DEFAULT_MODELS[payload.provider]
+    if not api_key:
+        return ExtAiModelsOut(auto_model=default, models=[], error="Kein API-Schlüssel hinterlegt.")
+    try:
+        models = ext_ai_models.list_models(payload.provider, api_key)
+    except Exception as exc:
+        return ExtAiModelsOut(auto_model=default, models=[], error=f"Modelle konnten nicht geladen werden: {describe_failure(exc)}.")
+    auto = ext_ai_models.pick_model(payload.provider, models) or default
+    return ExtAiModelsOut(
+        auto_model=auto,
+        models=[{"id": m["id"], "label": m["label"]} for m in models],
+    )
 
 
 # ─── Logo / Icon Management ───────────────────────────────────────────────────

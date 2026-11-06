@@ -11,6 +11,12 @@ export interface SiteSettings {
   ext_ai_key_configured?: boolean;
 }
 
+export interface ExtAiModels {
+  auto_model: string;
+  models: { id: string; label: string }[];
+  error?: string | null;
+}
+
 export interface UserRecord {
   id: string;
   username: string;

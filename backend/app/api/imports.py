@@ -45,6 +45,7 @@ from app.services.external_ai_parser import (
     parse_image_with_external_ai,
     parse_with_external_ai,
 )
+from app.services.ext_ai_models import resolve_model
 from app.services.image_search import search_food_images
 from app.services.ocr import (
     extract_image_text,
@@ -423,17 +424,18 @@ def _parse_image(
 
 
 def _get_external_ai(db: Session) -> _ExternalAI:
-    """Return the external AI config when fully configured, otherwise ``None``.
+    """Return the external AI config when configured, otherwise ``None``.
 
-    External AI is used automatically whenever it is configured in the admin
-    settings – no per-request opt-in is required.
+    External AI is used automatically whenever a provider and API key are set
+    in the admin settings – no per-request opt-in is required.  An empty model
+    means "automatic": the recommended model for the provider is selected.
     """
     s = get_settings(db)
-    if s.ext_ai_provider and s.ext_ai_api_key and s.ext_ai_model:
+    if s.ext_ai_provider and s.ext_ai_api_key:
         return _ExtAIConfig(
             provider=s.ext_ai_provider,
             api_key=s.ext_ai_api_key,
-            model=s.ext_ai_model,
+            model=resolve_model(s.ext_ai_provider, s.ext_ai_api_key, s.ext_ai_model),
         )
     return None
 

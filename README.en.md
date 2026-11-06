@@ -43,7 +43,7 @@
 - 🌗 **Dark / Light theme** with automatic logo switching
 - 🌍 **i18n** — German (default) + English
 - 📥 **Import recipes** from websites (URL scraping), PDFs, images (OCR), or camera — including AI-powered recognition
-- 🤖 **AI-powered import** — local (Ollama / LM Studio) or external (OpenAI / Google Gemini) with intelligent routing
+- 🤖 **AI-powered import** — local (Ollama / LM Studio) or external (OpenAI / Google Gemini / Anthropic Claude) with intelligent routing and automatic model selection
 - 🔐 **JWT authentication** — self-hosted & multi-user
 - 🗄️ **PostgreSQL** database with full recipe CRUD
 - 🐳 **Docker Compose** — one command to run everything
@@ -128,6 +128,8 @@ Receives extracted text (from a PDF text layer or Tesseract OCR) and returns str
 - **Local via LM Studio**: Any OpenAI-compatible model — `LLM_MODEL` must be set manually.
 - **OpenAI** (paid, external): `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, etc. — uses the Responses API with `json_schema` structured output for reliable extraction.
 - **Google Gemini** (paid, external): `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`, etc. — uses the official `google-genai` SDK.
+- **Anthropic Claude** (paid, external): `claude-opus-5-5` by default — uses the official `anthropic` SDK with JSON-schema output.
+- For all external providers the model is selected automatically by default (see ADMIN.en.md).
 
 #### 👁️ Vision LLM (multimodal model)
 Receives the image directly (bypassing OCR) and recognises layouts, handwriting, columns, and magazine designs far better than pure text recognition.
