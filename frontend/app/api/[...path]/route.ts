@@ -107,12 +107,11 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
     });
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
-    const message = err instanceof Error ? err.message : String(err);
     if (isTimeout) {
       console.error(`[proxy] Request to ${url} timed out after 10 minutes`);
       return NextResponse.json({ detail: "Request timed out" }, { status: 504 });
     }
-    console.error(`[proxy] Failed to reach backend at ${url}: ${message}`);
+    console.error("[proxy] Failed to reach backend at %s:", JSON.stringify(url), err);
     return NextResponse.json(
       { detail: "Backend unreachable" },
       { status: 502 }
