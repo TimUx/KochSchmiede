@@ -8,8 +8,9 @@ import Link from "next/link";
 import HelpButton from "@/components/HelpButton";
 import Toggle from "@/app/admin/components/Toggle";
 import AiHelpModal from "@/app/admin/components/AiHelpModal";
+import ExtAiProviderList from "@/app/admin/components/ExtAiProviderList";
 import { InlineAlert, SectionCard } from "@/app/admin/components/AdminUi";
-import { ADMIN_HELP, AI_HELP, PROVIDER_MODELS } from "@/app/admin/constants";
+import { ADMIN_HELP, AI_HELP } from "@/app/admin/constants";
 import { apiFetch, ApiError, uploadAdminAsset } from "@/app/admin/api";
 import type { SiteSettings, UnitRecord, UserRecord } from "@/app/admin/types";
 import {
@@ -34,7 +35,6 @@ import {
   Upload,
   RotateCcw,
   Bot,
-  HelpCircle,
 } from "lucide-react";
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -81,14 +81,6 @@ export default function AdminPage() {
     appicon: useRef<HTMLInputElement>(null),
   };
 
-  // External AI configuration state
-  const [extAiProvider, setExtAiProvider] = useState("");
-  const [extAiModel, setExtAiModel] = useState("");
-  const [extAiKey, setExtAiKey] = useState("");
-  const [showExtAiKey, setShowExtAiKey] = useState(false);
-  const [savingExtAi, setSavingExtAi] = useState(false);
-  const [extAiError, setExtAiError] = useState<string | null>(null);
-  const [extAiSuccess, setExtAiSuccess] = useState(false);
   const [showAiHelp, setShowAiHelp] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -105,9 +97,6 @@ export default function AdminPage() {
         apiFetch("/api/admin/units"),
       ]);
       setSettings(s);
-      setExtAiProvider(s.ext_ai_provider ?? "");
-      setExtAiModel(s.ext_ai_model ?? "");
-      setExtAiKey(""); // never pre-fill the key field
       setUsers(u);
       setUnits(un);
     } catch (e: unknown) {
@@ -141,59 +130,6 @@ export default function AdminPage() {
       setError(e instanceof Error ? e.message : "Fehler beim Speichern");
     } finally {
       setSavingSettings(false);
-    }
-  }
-
-  async function saveExtAi() {
-    setExtAiError(null);
-    setExtAiSuccess(false);
-    if (!extAiProvider || !extAiModel) {
-      setExtAiError("Bitte Anbieter und Modell angeben.");
-      return;
-    }
-    if (!extAiKey && !settings?.ext_ai_key_configured) {
-      setExtAiError("Bitte API-Schlüssel eingeben.");
-      return;
-    }
-    setSavingExtAi(true);
-    try {
-      const payload: Record<string, string> = {
-        ext_ai_provider: extAiProvider,
-        ext_ai_model: extAiModel,
-      };
-      if (extAiKey) payload.ext_ai_api_key = extAiKey;
-      const updated = await apiFetch("/api/admin/settings", {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-      setSettings(updated);
-      setExtAiKey("");
-      setExtAiSuccess(true);
-    } catch (e: unknown) {
-      setExtAiError(e instanceof Error ? e.message : "Fehler beim Speichern");
-    } finally {
-      setSavingExtAi(false);
-    }
-  }
-
-  async function clearExtAi() {
-    if (!confirm("Externe KI-Konfiguration wirklich entfernen?")) return;
-    setSavingExtAi(true);
-    setExtAiError(null);
-    setExtAiSuccess(false);
-    try {
-      const updated = await apiFetch("/api/admin/settings", {
-        method: "PUT",
-        body: JSON.stringify({ ext_ai_provider: "" }),
-      });
-      setSettings(updated);
-      setExtAiProvider("");
-      setExtAiModel("");
-      setExtAiKey("");
-    } catch (e: unknown) {
-      setExtAiError(e instanceof Error ? e.message : "Fehler beim Entfernen");
-    } finally {
-      setSavingExtAi(false);
     }
   }
 
@@ -573,131 +509,13 @@ export default function AdminPage() {
                 <SectionCard
                   title="Externe KI (Import)"
                   icon={Bot}
-                  description="Optionaler API-Dienst für den Import (z. B. ChatGPT, Google Gemini). Besonders hilfreich für handgeschriebene Rezepte."
+                  description="Optionale API-Dienste für den Import (ChatGPT, Google Gemini, Claude) – auch mehrere als Ausweichlösung. Besonders hilfreich für handgeschriebene Rezepte."
                 >
-
-                  <div className="p-4 space-y-3">
-                    {extAiError && (
-                      <InlineAlert
-                        tone="error"
-                        message={extAiError}
-                        onClose={() => setExtAiError(null)}
-                      />
-                    )}
-                    {extAiSuccess && (
-                      <InlineAlert tone="success" message="Externe KI gespeichert." />
-                    )}
-
-                    {/* Provider */}
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-                        Anbieter
-                      </label>
-                      <div className="flex gap-2">
-                        <select
-                          value={extAiProvider}
-                          onChange={(e) => {
-                            const p = e.target.value;
-                            setExtAiProvider(p);
-                            setExtAiSuccess(false);
-                            if (p && PROVIDER_MODELS[p]) {
-                              const models = PROVIDER_MODELS[p];
-                              if (!models.find((m) => m.value === extAiModel)) {
-                                setExtAiModel(models[0].value);
-                              }
-                            } else {
-                              setExtAiModel("");
-                            }
-                          }}
-                          className="flex-1 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                        >
-                          <option value="">– Anbieter wählen –</option>
-                          <option value="openai">OpenAI (ChatGPT)</option>
-                          <option value="gemini">Google Gemini</option>
-                        </select>
-                        {extAiProvider && AI_HELP[extAiProvider] && (
-                          <button
-                            type="button"
-                            onClick={() => setShowAiHelp(extAiProvider)}
-                            title="Hilfe: API-Schlüssel erstellen"
-                            className="px-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-200 dark:border-amber-800 transition shrink-0"
-                          >
-                            <HelpCircle size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Model */}
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-                        Modell
-                      </label>
-                      <select
-                        value={extAiModel}
-                        onChange={(e) => { setExtAiModel(e.target.value); setExtAiSuccess(false); }}
-                        disabled={!extAiProvider}
-                        className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-50"
-                      >
-                        {!extAiProvider && (
-                          <option value="">– zuerst Anbieter wählen –</option>
-                        )}
-                        {extAiProvider && PROVIDER_MODELS[extAiProvider]?.map((m) => (
-                          <option key={m.value} value={m.value}>{m.label}</option>
-                        ))}
-                        {extAiProvider && extAiModel &&
-                          !PROVIDER_MODELS[extAiProvider]?.find((m) => m.value === extAiModel) && (
-                          <option key={extAiModel} value={extAiModel}>{extAiModel} (gespeichert)</option>
-                        )}
-                      </select>
-                    </div>
-
-                    {/* API Key */}
-                    <div>
-                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-                        API-Schlüssel
-                        {settings?.ext_ai_key_configured && (
-                          <span className="ml-2 text-green-600 dark:text-green-400">(gespeichert)</span>
-                        )}
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showExtAiKey ? "text" : "password"}
-                          value={extAiKey}
-                          onChange={(e) => { setExtAiKey(e.target.value); setExtAiSuccess(false); }}
-                          placeholder={settings?.ext_ai_key_configured ? "Leer lassen, um gespeicherten Schlüssel zu behalten" : "sk-… oder AIza…"}
-                          className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowExtAiKey(!showExtAiKey)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-                        >
-                          {showExtAiKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        onClick={saveExtAi}
-                        disabled={savingExtAi}
-                        className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white py-2 rounded-xl text-sm font-medium transition"
-                      >
-                        {savingExtAi ? "Speichern…" : "Speichern"}
-                      </button>
-                      {settings?.ext_ai_key_configured && (
-                        <button
-                          onClick={clearExtAi}
-                          disabled={savingExtAi}
-                          title="Externe KI entfernen"
-                          className="px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-red-500 disabled:opacity-50 transition"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  <ExtAiProviderList
+                    settings={settings}
+                    onSaved={setSettings}
+                    onShowHelp={setShowAiHelp}
+                  />
                 </SectionCard>
               </div>
             )}

@@ -43,7 +43,7 @@
 - 🌗 **Dark / Light Theme** mit automatischem Logo-Wechsel
 - 🌍 **Mehrsprachigkeit** — Deutsch (Standard) + Englisch
 - 📥 **Rezepte importieren** von Websites (URL-Scraping), PDFs, Bildern (OCR) oder der Kamera — inklusive KI-gestützter Erkennung
-- 🤖 **KI-gestütztes Importieren** — lokal (Ollama / LM Studio) oder extern (OpenAI / Google Gemini) mit intelligentem Routing
+- 🤖 **KI-gestütztes Importieren** — lokal (Ollama / LM Studio) oder extern (OpenAI / Google Gemini / Anthropic Claude) mit intelligentem Routing und automatischer Modellwahl
 - 🔐 **JWT-Authentifizierung** — self-hosted & mehrere Benutzer
 - 🗄️ **PostgreSQL**-Datenbank mit vollständigem Rezept-CRUD
 - 🐳 **Docker Compose** — alles mit einem Befehl starten
@@ -128,6 +128,8 @@ Erhält den extrahierten Text (aus PDF-Textschicht oder Tesseract-OCR) und gibt 
 - **Lokal mit LM Studio**: Beliebiges OpenAI-kompatibles Modell — `LLM_MODEL` muss manuell gesetzt werden.
 - **OpenAI** (kostenpflichtig, extern): `gpt-4.1`, `gpt-4o`, `gpt-4o-mini` u. a. — nutzt die Responses API mit `json_schema` Structured Output für zuverlässige Extraktion.
 - **Google Gemini** (kostenpflichtig, extern): `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro` u. a. — nutzt das offizielle `google-genai` SDK.
+- **Anthropic Claude** (kostenpflichtig, extern): standardmäßig `claude-opus-5-5` — nutzt das offizielle `anthropic` SDK mit JSON-Schema-Ausgabe.
+- Bei allen externen Anbietern wird das Modell standardmäßig automatisch gewählt (siehe ADMIN.md).
 
 #### 👁️ Vision-LLM (multimodales Modell)
 Erhält das Bild direkt (kein Umweg über OCR) und erkennt Layout, Handschrift, Spalten und Zeitschriften-Designs deutlich besser als reine Texterkennung.

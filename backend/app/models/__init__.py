@@ -187,3 +187,7 @@ class SiteSettings(Base):
     ext_ai_provider = Column(String(20), nullable=True)
     ext_ai_api_key = Column(String(512), nullable=True)
     ext_ai_model = Column(String(100), nullable=True)
+    # Ordered list of external AI providers as JSON (see services/ext_ai_config).
+    # Replaces the three single-provider columns above, which are only read
+    # as a fallback for installations configured before this column existed.
+    ext_ai_providers = Column(Text, nullable=True)

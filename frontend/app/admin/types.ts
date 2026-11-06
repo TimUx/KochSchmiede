@@ -6,9 +6,21 @@ export interface SiteSettings {
   logo_dark_url?: string | null;
   favicon_url?: string | null;
   appicon_url?: string | null;
-  ext_ai_provider?: string | null;
-  ext_ai_model?: string | null;
-  ext_ai_key_configured?: boolean;
+  // External AI providers in priority order (keys are never returned)
+  ext_ai_providers?: ExtAiProvider[];
+}
+
+export interface ExtAiProvider {
+  id: string;
+  provider: string;
+  model?: string | null; // null = automatic
+  key_configured: boolean;
+}
+
+export interface ExtAiModels {
+  auto_model: string;
+  models: { id: string; label: string }[];
+  error?: string | null;
 }
 
 export interface UserRecord {
