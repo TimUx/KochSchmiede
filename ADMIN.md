@@ -697,7 +697,21 @@ AI_TIMEOUT=600
 
 ---
 
-### ❓ Externe KI (OpenAI/Gemini) funktioniert nicht
+### ❓ Bild-Upload oder Speichern eines Rezepts mit Bild schlägt fehl
+
+**Symptom:** Beim Bearbeiten oder Anlegen eines Rezepts mit Bild passiert beim Speichern nichts bzw. erscheint „Der Upload-Ordner auf dem Server ist nicht beschreibbar". Im Backend-Log steht `Upload directory /app/uploads/... is not writable by uid 10001`.
+
+**Ursache:** Das Backend läuft seit v1.0.0 als normaler Benutzer (UID 10001). Ein Upload-Volume, das mit einer älteren Version angelegt wurde, gehört noch `root`.
+
+**Lösung** (auf dem Host, Pfad an dein Volume anpassen):
+```bash
+chown -R 10001 /pfad/zum/uploads-volume
+```
+Ein Neustart ist nicht nötig.
+
+---
+
+### ❓ Externe KI (OpenAI/Gemini/Claude) funktioniert nicht
 
 **Prüfschritte**:
 1. API-Key korrekt eingegeben? (Im Admin-Interface → Einstellungen → Externe KI prüfen)

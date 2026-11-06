@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app.api import admin_router, auth_router, import_router, recipe_router
 from app.config import settings
 from app.database import Base, SessionLocal, engine
+from app.services.uploads import check_uploads_writable
 
 # Create tables on startup (use Alembic in production)
 Base.metadata.create_all(bind=engine)
@@ -99,6 +100,7 @@ app.include_router(import_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 
 # Serve uploaded logo/icon files
+check_uploads_writable()
 _UPLOADS_DIR = str(Path(__file__).resolve().parents[1] / "uploads")
 os.makedirs(_UPLOADS_DIR, exist_ok=True)
 app.mount("/api/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")

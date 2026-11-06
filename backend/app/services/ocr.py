@@ -1,4 +1,5 @@
 import io
+import os
 import logging
 import re
 import uuid
@@ -825,6 +826,13 @@ def _save_imported_image(img_bytes: bytes) -> Optional[str]:
         dest = _IMPORT_UPLOAD_DIR / filename
         img.save(dest, "JPEG", quality=85)
         return f"/api/uploads/imported/{filename}"
+    except PermissionError:
+        logger.error(
+            "Upload directory %s is not writable by uid %s – imported image not saved. "
+            "Fix on the host: chown -R %s <uploads volume>",
+            _IMPORT_UPLOAD_DIR, os.getuid(), os.getuid(),
+        )
+        return None
     except Exception:
         logger.warning("Failed to save imported PDF image", exc_info=True)
         return None
