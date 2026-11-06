@@ -111,7 +111,7 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
       console.error(`[proxy] Request to ${url} timed out after 10 minutes`);
       return NextResponse.json({ detail: "Request timed out" }, { status: 504 });
     }
-    console.error(`[proxy] Failed to reach backend at ${url}`, err);
+    console.error("[proxy] Failed to reach backend at %s:", JSON.stringify(url), err);
     return NextResponse.json(
       { detail: "Backend unreachable" },
       { status: 502 }
