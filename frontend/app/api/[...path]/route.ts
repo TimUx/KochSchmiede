@@ -56,17 +56,17 @@ async function proxyRequest(req: NextRequest, context: Context): Promise<NextRes
     headers,
   };
 
+  // Never forward Content-Length: fetch computes it from the body itself.
+  // A manually set value collides with the one fetch adds, and the bundled
+  // undici Agent rejects it with "invalid content-length header" (every POST
+  // then fails with a 502).
+  headers.delete("content-length");
+
   if (req.method !== "GET" && req.method !== "HEAD") {
-    // Buffer the entire body before forwarding to avoid conflicts between the
-    // forwarded Content-Length header and chunked transfer encoding that can
-    // occur when streaming the body with duplex: "half".
-    const body = await req.arrayBuffer();
-    init.body = body;
-    headers.set("content-length", String(body.byteLength));
+    // Buffer the entire body so it is not streamed (no duplex: "half" needed).
+    init.body = await req.arrayBuffer();
   } else {
-    // GET/HEAD requests must not carry a body.  Remove any Content-Length or
-    // Content-Type header that the client or an upstream proxy may have added.
-    headers.delete("content-length");
+    // GET/HEAD requests must not carry a body.
     headers.delete("content-type");
   }
 
