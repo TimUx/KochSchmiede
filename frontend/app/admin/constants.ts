@@ -44,6 +44,12 @@ export const AI_HELP: Record<
   },
 };
 
+export const PROVIDER_LABELS: Record<string, string> = {
+  openai: "OpenAI (ChatGPT)",
+  gemini: "Google Gemini",
+  anthropic: "Anthropic (Claude)",
+};
+
 export const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
   openai: [
     { value: "gpt-4o", label: "GPT-4o" },

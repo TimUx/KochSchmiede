@@ -32,11 +32,12 @@ def _migrate_site_settings() -> None:
         ("ext_ai_provider", "VARCHAR(20)"),
         ("ext_ai_api_key", "VARCHAR(512)"),
         ("ext_ai_model", "VARCHAR(100)"),
+        ("ext_ai_providers", "TEXT"),
     ]
     # Allowed column names and types – validated before interpolation so that
     # accidental future changes to the list cannot introduce SQL injection.
     _allowed_names = {col for col, _ in _SITE_SETTINGS_NEW_COLUMNS}
-    _allowed_types = {"VARCHAR(512)", "VARCHAR(20)", "VARCHAR(100)"}
+    _allowed_types = {"VARCHAR(512)", "VARCHAR(20)", "VARCHAR(100)", "TEXT"}
     with engine.connect() as conn:
         for col_name, col_type in _SITE_SETTINGS_NEW_COLUMNS:
             if col_name not in _allowed_names or col_type not in _allowed_types:
@@ -157,6 +158,7 @@ def setup_status():
 def public_settings(db=None):
     """Return the subset of settings the frontend needs without authentication."""
     from app.database import SessionLocal
+    from app.services.ext_ai_config import load_entries as load_ext_ai_entries
     from app.services.settings import get_settings as _get
 
     db = SessionLocal()
@@ -169,7 +171,7 @@ def public_settings(db=None):
             "logo_dark_url": s.logo_dark_url,
             "favicon_url": s.favicon_url,
             "appicon_url": s.appicon_url,
-            "ext_ai_configured": bool(s.ext_ai_provider and s.ext_ai_api_key),
+            "ext_ai_configured": bool(load_ext_ai_entries(s)),
         }
     finally:
         db.close()

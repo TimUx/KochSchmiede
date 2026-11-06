@@ -386,6 +386,8 @@ Hier konfigurierst du optionale externe KI-Dienste für die Rezepterkennung.
 3. Lass das Modell auf **„Automatisch (empfohlen)"** stehen
 4. Klicke auf **„Speichern"**
 
+**Mehrere KIs als Ausweichlösung:** Über **„Weitere KI als Ausweichlösung hinzufügen"** lassen sich mehrere Anbieter (auch mehrfach derselbe mit anderem Key oder Modell) eintragen. Beim Import wird die erste KI verwendet; schlägt sie fehl, übernimmt automatisch die nächste. Die Reihenfolge änderst du mit den Pfeil-Knöpfen. Eine KI mit dauerhaftem Fehler (ungültiger Key, kein Guthaben, unbekanntes Modell) wird für den Rest des Imports übersprungen. Erst wenn alle KIs fehlschlagen, greift die lokale Erkennung – der Hinweis beim Import nennt dann die Ursache je KI.
+
 **Automatische Modellwahl:** Bei „Automatisch" fragt KochSchmiede mit deinem API-Key die verfügbaren Modelle beim Anbieter ab und wählt das empfohlene aus. Die Auswahl wird alle 12 Stunden neu geprüft, neue Modelle werden also ohne Zutun übernommen. Ist die Modell-Liste nicht abrufbar, wird ein fester Standard verwendet. Das aktuell gewählte Modell steht direkt im Auswahlfeld.
 
 | Anbieter | Automatische Wahl | Standard ohne Modell-Liste |

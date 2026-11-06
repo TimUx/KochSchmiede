@@ -222,19 +222,19 @@ class SiteSettingsOut(BaseModel):
     logo_dark_url: Optional[str] = None
     favicon_url: Optional[str] = None
     appicon_url: Optional[str] = None
-    # External AI provider – provider name + model are returned; the API key
-    # is never exposed, only a boolean flag indicating whether it is set.
-    ext_ai_provider: Optional[str] = None
-    ext_ai_model: Optional[str] = None
-    ext_ai_key_configured: bool = False
+    # External AI providers in priority order – API keys are never exposed,
+    # only a flag that one is stored.
+    ext_ai_providers: list["ExtAiProviderOut"] = []
 
     model_config = {"from_attributes": True}
 
     @model_validator(mode="before")
     @classmethod
-    def _inject_key_configured(cls, data: object) -> object:
-        """Populate ``ext_ai_key_configured`` from the ORM row's ``ext_ai_api_key``."""
+    def _inject_ext_ai(cls, data: object) -> object:
+        """Build the output from the ORM row, replacing keys by flags."""
         if hasattr(data, "ext_ai_api_key"):
+            from app.services.ext_ai_config import public_entries
+
             # ORM model instance – build a plain dict so Pydantic can map fields.
             return {
                 "site_mode": data.site_mode,
@@ -244,15 +244,8 @@ class SiteSettingsOut(BaseModel):
                 "logo_dark_url": data.logo_dark_url,
                 "favicon_url": data.favicon_url,
                 "appicon_url": data.appicon_url,
-                "ext_ai_provider": data.ext_ai_provider,
-                "ext_ai_model": data.ext_ai_model,
-                "ext_ai_key_configured": bool(data.ext_ai_api_key),
+                "ext_ai_providers": public_entries(data),
             }
-        # Already a dict (e.g. from a test or explicit construction)
-        if isinstance(data, dict) and "ext_ai_api_key" in data:
-            out = dict(data)
-            out["ext_ai_key_configured"] = bool(out.pop("ext_ai_api_key", None))
-            return out
         return data
 
 
@@ -260,18 +253,40 @@ class SiteSettingsUpdate(BaseModel):
     site_mode: Optional[Literal["public", "private"]] = None
     registration_mode: Optional[Literal["open", "admin_only"]] = None
     ssrf_protection: Optional[bool] = None
-    # External AI configuration – set all three to configure; send
-    # ext_ai_provider="" to clear the external AI configuration entirely.
-    ext_ai_provider: Optional[Literal["", "openai", "gemini", "anthropic"]] = None
-    ext_ai_api_key: Optional[str] = None
-    # Empty model = choose the recommended model automatically.
-    ext_ai_model: Optional[str] = None
+
+
+ExtAiProviderName = Literal["openai", "gemini", "anthropic"]
+
+
+class ExtAiProviderOut(BaseModel):
+    id: str
+    provider: ExtAiProviderName
+    model: Optional[str] = None  # None = automatic
+    key_configured: bool = True
+
+
+SiteSettingsOut.model_rebuild()
+
+
+class ExtAiProviderIn(BaseModel):
+    id: Optional[str] = None  # None for a new entry
+    provider: ExtAiProviderName
+    model: Optional[str] = Field(default=None, max_length=100)  # empty = automatic
+    # Empty keeps the stored key of the entry with the same id.
+    api_key: Optional[str] = Field(default=None, max_length=512)
+
+
+class ExtAiProvidersUpdate(BaseModel):
+    # Priority order: the first provider is tried first.
+    providers: list[ExtAiProviderIn] = Field(default_factory=list, max_length=10)
 
 
 class ExtAiModelsRequest(BaseModel):
-    provider: Literal["openai", "gemini", "anthropic"]
-    # Optional: test a key before saving it; otherwise the stored key is used.
+    provider: ExtAiProviderName
+    # Optional: test a key before saving it.  Otherwise the stored key of
+    # entry *entry_id* is used.
     api_key: Optional[str] = None
+    entry_id: Optional[str] = None
 
 
 class ExtAiModelOption(BaseModel):

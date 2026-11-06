@@ -22,7 +22,7 @@ import io
 import json
 import logging
 from contextvars import ContextVar
-from typing import Optional
+from typing import Callable, NamedTuple, Optional
 
 from app.schemas import ImportResult
 from app.services import anthropic_parser
@@ -38,6 +38,12 @@ _EXTERNAL_AI_TIMEOUT = 120  # seconds
 # kept here so the import warning can tell the user what actually went wrong.
 
 _last_failure: ContextVar[Optional[str]] = ContextVar("external_ai_last_failure", default=None)
+# True when the last failure will repeat on retry (bad key, no credit, unknown model).
+_last_failure_permanent: ContextVar[bool] = ContextVar("external_ai_last_failure_permanent", default=False)
+# Failures of the last provider chain run: list of (label, reason).
+_chain_failures: ContextVar[Optional[list]] = ContextVar("external_ai_chain_failures", default=None)
+# Providers that failed permanently during the current request → reason.
+_skipped: ContextVar[Optional[dict]] = ContextVar("external_ai_skipped", default=None)
 
 
 def last_failure_reason() -> Optional[str]:
@@ -47,6 +53,20 @@ def last_failure_reason() -> Optional[str]:
 
 def describe_failure(exc: BaseException) -> str:
     """Map an OpenAI / Gemini / Anthropic SDK exception to a short German explanation."""
+    return _classify(exc)[0]
+
+
+def _classify(exc: BaseException) -> tuple[str, bool]:
+    """Return ``(reason, permanent)`` for an SDK exception."""
+    reason = _reason(exc)
+    code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    permanent = code in (401, 402, 403, 404) or any(
+        phrase in reason for phrase in ("Guthaben", "API-Key", "Modellname")
+    )
+    return reason, permanent
+
+
+def _reason(exc: BaseException) -> str:
     name = type(exc).__name__
     code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     if not isinstance(code, int):
@@ -86,7 +106,9 @@ def describe_failure(exc: BaseException) -> str:
 
 def _record_failure(context: str, exc: BaseException) -> None:
     logger.warning("%s failed: %s", context, exc)
-    _last_failure.set(describe_failure(exc))
+    reason, permanent = _classify(exc)
+    _last_failure.set(reason)
+    _last_failure_permanent.set(permanent)
 
 # ── OpenAI structured-output schema ───────────────────────────────────────────
 # Used as the structured-output format (see _OPENAI_TEXT_FORMAT) to enforce the exact
@@ -341,6 +363,7 @@ def parse_with_external_ai(
     from more context (e.g. full web-page text).
     """
     _last_failure.set(None)
+    _last_failure_permanent.set(False)
     if not text.strip() or not api_key or not model:
         return None
 
@@ -374,6 +397,7 @@ def parse_image_with_external_ai(
     Returns ``None`` when credentials are missing or the API call fails.
     """
     _last_failure.set(None)
+    _last_failure_permanent.set(False)
     if not image_bytes or not api_key or not model:
         return None
 
@@ -399,3 +423,78 @@ def parse_image_with_external_ai(
 
     logger.warning("Unknown external AI provider: %s", provider)
     return None
+
+
+# ── Provider chain (fallback to the next provider) ───────────────────────────
+
+
+class ExtAIProvider(NamedTuple):
+    """One configured external AI provider (model already resolved)."""
+
+    provider: str
+    api_key: str
+    model: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.provider} / {self.model}"
+
+
+def begin_request() -> None:
+    """Start a new import request: forget providers skipped in earlier ones."""
+    _skipped.set({})
+    _chain_failures.set(None)
+
+
+def last_chain_failures() -> list[tuple[str, str]]:
+    """Return ``(label, reason)`` for each provider that failed in the last chain run."""
+    return list(_chain_failures.get() or [])
+
+
+def _run_chain(
+    chain: list[ExtAIProvider], call: Callable[[ExtAIProvider], Optional[ImportResult]]
+) -> Optional[ImportResult]:
+    """Try the providers in order and return the first successful result.
+
+    A provider that failed permanently (invalid key, no credit, unknown model)
+    is not called again for the rest of the request.
+    """
+    skipped = _skipped.get()
+    if skipped is None:
+        skipped = {}
+    failures: list[tuple[str, str]] = []
+    for entry in chain:
+        ident = (entry.provider, entry.api_key, entry.model)
+        if ident in skipped:
+            failures.append((entry.label, skipped[ident]))
+            continue
+        result = call(entry)
+        if result is not None:
+            if failures:
+                logger.info("External AI: %s used after %d failed provider(s)", entry.label, len(failures))
+            _chain_failures.set(failures)
+            return result
+        reason = last_failure_reason() or "keine verwertbare Antwort erhalten"
+        failures.append((entry.label, reason))
+        if _last_failure_permanent.get():
+            skipped[ident] = reason
+    _chain_failures.set(failures)
+    return None
+
+
+def parse_with_external_ai_chain(
+    text: str, chain: list[ExtAIProvider], text_limit: int = _AI_TEXT_LIMIT
+) -> Optional[ImportResult]:
+    """Parse recipe text with the first provider in *chain* that succeeds."""
+    return _run_chain(
+        chain, lambda e: parse_with_external_ai(text, e.provider, e.api_key, e.model, text_limit=text_limit)
+    )
+
+
+def parse_image_with_external_ai_chain(
+    image_bytes: bytes, mime_type: str, chain: list[ExtAIProvider]
+) -> Optional[ImportResult]:
+    """Parse a recipe image with the first provider in *chain* that succeeds."""
+    return _run_chain(
+        chain, lambda e: parse_image_with_external_ai(image_bytes, mime_type, e.provider, e.api_key, e.model)
+    )

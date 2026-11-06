@@ -28,7 +28,7 @@ admin settings it is automatically used instead of the locally hosted model.
 """
 
 import logging
-from typing import NamedTuple, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
@@ -40,12 +40,15 @@ from app.services.ai_parser import (
     parse_image_with_ai,
     parse_with_ai,
 )
-from app.services.external_ai_parser import (
-    last_failure_reason as last_ext_ai_failure_reason,
-    parse_image_with_external_ai,
-    parse_with_external_ai,
-)
+from app.services.ext_ai_config import load_entries as load_ext_ai_entries
 from app.services.ext_ai_models import resolve_model
+from app.services.external_ai_parser import (
+    ExtAIProvider,
+    begin_request as begin_ext_ai_request,
+    last_chain_failures,
+    parse_image_with_external_ai_chain,
+    parse_with_external_ai_chain,
+)
 from app.services.image_search import search_food_images
 from app.services.ocr import (
     extract_image_text,
@@ -78,30 +81,31 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 _OCR_QUALITY_THRESHOLD = 0.60
 
 
-class _ExtAIConfig(NamedTuple):
-    """External AI configuration (provider name, API key, model name)."""
-
-    provider: str
-    api_key: str
-    model: str
+# Configured external AI providers in priority order, or None when none is set.
+_ExternalAI = Optional[list[ExtAIProvider]]
 
 
-# Typed external AI config, or None when not configured / not requested.
-_ExternalAI = Optional[_ExtAIConfig]
+def _ext_ai_labels(ext_ai: list[ExtAIProvider]) -> str:
+    return ", ".join(e.label for e in ext_ai)
 
 
-def _ext_ai_warning(ext_ai: _ExtAIConfig, context: str) -> str:
-    """Return a German-language warning string for an external AI failure.
+def _ext_ai_warning(ext_ai: list[ExtAIProvider], context: str) -> str:
+    """Return a German-language warning string when all external AIs failed.
 
     *context* is either ``"Bild"`` or ``"Dokument"``.
     """
-    reason = last_ext_ai_failure_reason()
-    detail = f": {reason}." if reason else " (z. B. falscher Modellname oder ungültiger API-Key)."
-    return (
-        f"Die externe KI ({ext_ai.provider} / {ext_ai.model}) konnte das {context} nicht verarbeiten"
-        f"{detail} "
-        f"Das Ergebnis stammt vom lokalen Fallback und ist möglicherweise unvollständig."
-    )
+    failures = last_chain_failures()
+    fallback = "Das Ergebnis stammt vom lokalen Fallback und ist möglicherweise unvollständig."
+    if not failures:
+        return (
+            f"Die externe KI ({_ext_ai_labels(ext_ai)}) konnte das {context} nicht verarbeiten "
+            f"(z. B. falscher Modellname oder ungültiger API-Key). {fallback}"
+        )
+    if len(failures) == 1:
+        label, reason = failures[0]
+        return f"Die externe KI ({label}) konnte das {context} nicht verarbeiten: {reason}. {fallback}"
+    details = "; ".join(f"{label}: {reason}" for label, reason in failures)
+    return f"Keine der externen KIs konnte das {context} verarbeiten – {details}. {fallback}"
 
 
 def _is_pdf(file: UploadFile) -> bool:
@@ -250,7 +254,7 @@ def _parse_pdf(content: bytes, ext_ai: _ExternalAI = None) -> ImportResult:
     4. Fallback: Text AI on whatever text was extracted.
     5. Heuristic parser.
 
-    When *ext_ai* is provided the external AI backend (OpenAI / Gemini) is
+    When *ext_ai* is provided the external AI providers (OpenAI / Gemini / Claude, in order) are
     used in place of the locally hosted model for every AI step.
     """
     raw_text, image_url = extract_pdf_text_and_image(content, False)
@@ -267,12 +271,12 @@ def _parse_pdf(content: bytes, ext_ai: _ExternalAI = None) -> ImportResult:
         if ext_ai:
             # External AI does not have a chat-completions retry distinction;
             # skip_chat is only relevant for the local Ollama backend.
-            return parse_with_external_ai(text, *ext_ai)
+            return parse_with_external_ai_chain(text, ext_ai)
         return parse_with_ai(text, skip_chat_completions=skip_chat)
 
     def _vision_ai(img: bytes, mime: str = "image/jpeg") -> ImportResult | None:
         if ext_ai:
-            return parse_image_with_external_ai(img, mime, *ext_ai)
+            return parse_image_with_external_ai_chain(img, mime, ext_ai)
         return parse_image_with_ai(img, mime_type=mime)
 
     def _has_vision() -> bool:
@@ -320,9 +324,8 @@ def _parse_pdf(content: bytes, ext_ai: _ExternalAI = None) -> ImportResult:
 
     if ext_ai_failed and result is not None and ext_ai:
         logger.warning(
-            "External AI (%s / %s) failed for PDF import; heuristic fallback used.",
-            ext_ai.provider,
-            ext_ai.model,
+            "External AI (%s) failed for PDF import; local fallback used.",
+            _ext_ai_labels(ext_ai),
         )
         result.import_warning = _ext_ai_warning(ext_ai, "Dokument")
 
@@ -369,12 +372,12 @@ def _parse_image(
     # Helpers that dispatch to either external or local AI
     def _text_ai(text: str) -> ImportResult | None:
         if ext_ai:
-            return parse_with_external_ai(text, *ext_ai)
+            return parse_with_external_ai_chain(text, ext_ai)
         return parse_with_ai(text)
 
     def _vision_ai() -> ImportResult | None:
         if ext_ai:
-            return parse_image_with_external_ai(content, mime_type, *ext_ai)
+            return parse_image_with_external_ai_chain(content, mime_type, ext_ai)
         return parse_image_with_ai(content, mime_type=mime_type)
 
     def _has_vision() -> bool:
@@ -414,9 +417,8 @@ def _parse_image(
 
     if ext_ai_failed and result is not None and ext_ai:
         logger.warning(
-            "External AI (%s / %s) failed for image import; heuristic fallback used.",
-            ext_ai.provider,
-            ext_ai.model,
+            "External AI (%s) failed for image import; local fallback used.",
+            _ext_ai_labels(ext_ai),
         )
         result.import_warning = _ext_ai_warning(ext_ai, "Bild")
 
@@ -424,20 +426,25 @@ def _parse_image(
 
 
 def _get_external_ai(db: Session) -> _ExternalAI:
-    """Return the external AI config when configured, otherwise ``None``.
+    """Return the configured external AI providers, or ``None`` when there are none.
 
-    External AI is used automatically whenever a provider and API key are set
-    in the admin settings – no per-request opt-in is required.  An empty model
-    means "automatic": the recommended model for the provider is selected.
+    External AI is used automatically whenever providers are configured in the
+    admin settings – no per-request opt-in is required.  They are tried in
+    order; an empty model means the recommended model is selected
+    automatically.
     """
-    s = get_settings(db)
-    if s.ext_ai_provider and s.ext_ai_api_key:
-        return _ExtAIConfig(
-            provider=s.ext_ai_provider,
-            api_key=s.ext_ai_api_key,
-            model=resolve_model(s.ext_ai_provider, s.ext_ai_api_key, s.ext_ai_model),
+    begin_ext_ai_request()
+    entries = load_ext_ai_entries(get_settings(db))
+    if not entries:
+        return None
+    return [
+        ExtAIProvider(
+            provider=e["provider"],
+            api_key=e["api_key"],
+            model=resolve_model(e["provider"], e["api_key"], e.get("model") or None),
         )
-    return None
+        for e in entries
+    ]
 
 
 # OCR quality threshold below which handwriting mode is also tried.
@@ -512,9 +519,9 @@ def import_from_url(
     # correctly parse ingredients/steps even when the heuristic scraper
     # returned fragmented data (e.g. amounts and names on separate lines).
 
-    # 1. External AI (OpenAI / Gemini) – preferred when configured.
+    # 1. External AI (OpenAI / Gemini / Claude, in order) – preferred when configured.
     if ext_ai:
-        ai_result = parse_with_external_ai(page_text, *ext_ai, text_limit=_URL_TEXT_LIMIT)
+        ai_result = parse_with_external_ai_chain(page_text, ext_ai, text_limit=_URL_TEXT_LIMIT)
         if ai_result:
             return _fill_metadata(ai_result)
 
@@ -595,12 +602,12 @@ async def import_from_files(
     # Helpers that dispatch to external or local AI
     def _text_ai(text: str) -> ImportResult | None:
         if ext_ai:
-            return parse_with_external_ai(text, *ext_ai)
+            return parse_with_external_ai_chain(text, ext_ai)
         return parse_with_ai(text)
 
     def _vision_ai(img_bytes: bytes, mime: str) -> ImportResult | None:
         if ext_ai:
-            return parse_image_with_external_ai(img_bytes, mime, *ext_ai)
+            return parse_image_with_external_ai_chain(img_bytes, mime, ext_ai)
         return parse_image_with_ai(img_bytes, mime_type=mime)
 
     def _has_vision() -> bool:

@@ -9,7 +9,6 @@ fails, a fixed default per provider is used.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import threading
@@ -122,7 +121,8 @@ def pick_model(provider: str, models: list[dict]) -> Optional[str]:
 
 
 def _cache_key(provider: str, api_key: str) -> tuple[str, str]:
-    return provider, hashlib.sha256(api_key.encode()).hexdigest()[:16]
+    # In-memory only; the key is already held in memory with the settings.
+    return provider, api_key
 
 
 def resolve_model(provider: str, api_key: str, configured: Optional[str]) -> str:

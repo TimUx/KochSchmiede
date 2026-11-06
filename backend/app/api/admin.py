@@ -11,6 +11,7 @@ from app.models import User, Unit
 from app.schemas import (
     ExtAiModelsOut,
     ExtAiModelsRequest,
+    ExtAiProvidersUpdate,
     SiteSettingsOut,
     SiteSettingsUpdate,
     UnitCreate,
@@ -19,7 +20,7 @@ from app.schemas import (
     UserCreate,
     UserOut,
 )
-from app.services import ext_ai_models
+from app.services import ext_ai_config, ext_ai_models
 from app.services.auth import create_user, get_user_by_username, hash_password
 from app.services.external_ai_parser import describe_failure
 from app.services.settings import get_settings, update_settings
@@ -66,32 +67,24 @@ def write_settings(
     if payload.ssrf_protection is not None:
         kwargs["ssrf_protection"] = payload.ssrf_protection
 
-    # External AI: if provider is explicitly set to "" clear all ext AI fields;
-    # otherwise only update the fields that were provided.
-    force_null: set[str] = set()
-    if payload.ext_ai_provider == "":
-        # Clear the entire external AI configuration.
-        kwargs["ext_ai_provider"] = None
-        kwargs["ext_ai_api_key"] = None
-        kwargs["ext_ai_model"] = None
-        force_null = {"ext_ai_provider", "ext_ai_api_key", "ext_ai_model"}
-    else:
-        if payload.ext_ai_provider is not None:
-            kwargs["ext_ai_provider"] = payload.ext_ai_provider
-        # Allow clearing the model by sending ""
-        if payload.ext_ai_model is not None:
-            kwargs["ext_ai_model"] = payload.ext_ai_model or None
-            if not payload.ext_ai_model:
-                force_null.add("ext_ai_model")
-        # Only update API key when a non-empty value is provided – an empty
-        # field means "keep the existing key" (the frontend never pre-fills it).
-        if payload.ext_ai_api_key:
-            kwargs["ext_ai_api_key"] = payload.ext_ai_api_key
+    return update_settings(db, **kwargs)
 
-    if any(k.startswith("ext_ai_") for k in kwargs):
-        # Provider or key changed: re-run automatic model selection.
-        ext_ai_models.clear_cache()
-    return update_settings(db, _force_null_keys=force_null, **kwargs)
+
+@router.put("/ext-ai/providers", response_model=SiteSettingsOut)
+def write_ext_ai_providers(
+    payload: ExtAiProvidersUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_admin_user),
+):
+    """Replace the external AI providers (priority order).
+
+    An empty list removes the external AI configuration.
+    """
+    row = get_settings(db)
+    try:
+        return ext_ai_config.save_entries(db, row, [p.model_dump() for p in payload.providers])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/ext-ai/models", response_model=ExtAiModelsOut)
@@ -102,14 +95,12 @@ def list_ext_ai_models(
 ):
     """List the models available for a provider and the automatic choice.
 
-    Uses the API key from the request, or the stored key when the stored
-    provider matches.
+    Uses the API key from the request, or the stored key of *entry_id* when
+    that entry has the same provider.
     """
     api_key = payload.api_key
-    if not api_key:
-        s = get_settings(db)
-        if s.ext_ai_provider == payload.provider:
-            api_key = s.ext_ai_api_key
+    if not api_key and payload.entry_id:
+        api_key = ext_ai_config.stored_key(get_settings(db), payload.entry_id, payload.provider)
     default = ext_ai_models.DEFAULT_MODELS[payload.provider]
     if not api_key:
         return ExtAiModelsOut(auto_model=default, models=[], error="Kein API-Schlüssel hinterlegt.")
