@@ -74,6 +74,16 @@ class Settings(BaseSettings):
     # Set to False to disable automatic pulling (manage models manually).
     OLLAMA_AUTO_PULL: bool = True
 
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def pin_postgres_driver(cls, v: str) -> str:
+        # SQLAlchemy 2.1 maps a bare "postgresql://" to psycopg 3, but we ship
+        # psycopg2. Pin the driver so existing .env files keep working.
+        for prefix in ("postgresql://", "postgres://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg2://" + v[len(prefix):]
+        return v
+
     @field_validator("SECRET_KEY")
     @classmethod
     def secret_key_must_be_set(cls, v: str) -> str:
