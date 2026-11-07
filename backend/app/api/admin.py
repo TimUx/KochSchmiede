@@ -24,6 +24,7 @@ from app.services import ext_ai_config, ext_ai_models
 from app.services.auth import create_user, get_user_by_username, hash_password
 from app.services.external_ai_parser import describe_failure
 from app.services.settings import get_settings, update_settings
+from app.services.uploads import write_upload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -134,13 +135,10 @@ async def upload_logo(
     if len(data) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="Datei zu groß (max. 5 MB)")
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
     # Determine extension from content type
     ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
     ext = ext_map.get(file.content_type, ".png")
     filename = f"{logo_type}_{uuid.uuid4().hex[:8]}{ext}"
-    dest = UPLOAD_DIR / filename
 
     # Delete the previous custom file for this slot (if any)
     settings_row = get_settings(db)
@@ -149,7 +147,7 @@ async def upload_logo(
         old_path = UPLOAD_DIR / os.path.basename(old_url)
         old_path.unlink(missing_ok=True)
 
-    dest.write_bytes(data)
+    write_upload(UPLOAD_DIR, filename, data)
 
     url = f"/api/uploads/logos/{filename}"
     return update_settings(db, **{_LOGO_FIELD_MAP[logo_type]: url})

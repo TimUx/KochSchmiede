@@ -23,6 +23,7 @@ from app.schemas import (
 )
 from app.services.auth import hash_password, verify_password
 from app.services.settings import get_settings
+from app.services.uploads import write_upload
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
@@ -188,10 +189,9 @@ async def upload_recipe_image(
             image.verify()
     except (UnidentifiedImageError, OSError) as exc:
         raise HTTPException(status_code=400, detail="Datei enthält kein gültiges Bild") from exc
-    _RECIPE_IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     ext = _RECIPE_IMAGE_EXT_MAP[file.content_type]
     filename = f"recipe_{uuid.uuid4().hex}{ext}"
-    (_RECIPE_IMAGE_UPLOAD_DIR / filename).write_bytes(data)
+    write_upload(_RECIPE_IMAGE_UPLOAD_DIR, filename, data)
     return {"url": f"/api/uploads/recipes/{filename}"}
 
 

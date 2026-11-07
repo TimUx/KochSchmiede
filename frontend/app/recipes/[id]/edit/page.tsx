@@ -25,6 +25,10 @@ export default function RecipeEditor({ params }: { params: Promise<{ id: string 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The error box sits at the top of the page; make sure it is visible.
+  useEffect(() => {
+    if (error) window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [error]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
